@@ -37,6 +37,53 @@ Values never turn `unavailable`: when the connection is lost they keep the last
 known value and `game_state` becomes `no_connection`. Removing the integration
 clears its config, so the game stops collecting data.
 
+## Roadmap
+
+The goal: see what happens in a Factorio server that keeps running while you are
+away — attacks, lines that ran out of resources, depleted ore patches — and react
+with notifications or voice announcements. Data is grouped (per planet, per recipe)
+so a big base gives dozens of entities, not thousands. Everything below is chosen in
+the integration options, and the game collects only what is enabled.
+
+### Done (v0.1, proof of concept)
+
+- [x] Relay ↔ Home Assistant over MQTT, with discovery (`factorio/+/hello`)
+- [x] Game state: running / paused / stopped / no connection
+- [x] Players online (count + names)
+- [x] Events: `player_joined`, `player_left` (event entity + HA bus event)
+- [x] Config from Home Assistant: the game collects nothing until HA asks for it
+- [x] Values never turn `unavailable`; survive relay, game and HA restarts
+
+### Sensors (planned)
+
+- [ ] Machines per planet: % working, grouped by recipe
+- [ ] Problem lines per planet: no ingredients / output full / no power (list in attributes)
+- [ ] Dedicated sensors for lines you pick in the options (e.g. iron plates on Nauvis)
+- [ ] Mining drills: depleted resource patches
+- [ ] Enemy evolution per planet
+- [ ] Research: current, progress, queue
+- [ ] Space platforms: where they are, in transit, waiting, losses
+- [ ] Recent events feed for dashboards
+
+### Events (planned)
+
+- [x] `player_joined` / `player_left`
+- [ ] `player_died`
+- [ ] `research_finished`
+- [ ] `attack_started` / `attack_ended` — merged by time and area, with position and losses
+- [ ] `line_problem` / `line_recovered`
+- [ ] `drills_depleted`
+- [ ] `platform_damaged`, platform arrived / departed
+
+### Later
+
+- [ ] Item, recipe and planet names from the game (English, Ukrainian)
+- [ ] Dashboard examples
+- [ ] Notification and voice announcement blueprints
+- [ ] Direct stream provider (no MQTT broker needed)
+- [ ] Mod on the Factorio mod portal; integration in the default HACS list
+- Ideas: production rates, logistics storage, power network, platform ammo/fuel
+
 ## Development
 
 ```bash
