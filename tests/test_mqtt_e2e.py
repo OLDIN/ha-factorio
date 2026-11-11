@@ -1,6 +1,7 @@
 """The integration over the MQTT provider, end to end (mocked broker)."""
 
 import json
+from pathlib import Path
 
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE
@@ -170,3 +171,39 @@ async def test_event_data_cannot_override_event_type(hass: HomeAssistant, mqtt_m
                {"v": 1, "event": "player_joined", "tick": 9, "time": "t",
                 "data": {"player": "guest", "event_type": "player_left"}})
     assert hass.states.get("event.factorio_main_game_events").attributes["event_type"] == "player_joined"
+
+
+def _device(hass: HomeAssistant, entry: MockConfigEntry):
+    from homeassistant.helpers import device_registry as dr
+
+    return dr.async_get(hass).async_get_device_by_identifier((DOMAIN, "main"), entry.entry_id)
+
+
+async def test_device_named_after_server(hass: HomeAssistant, mqtt_mock):
+    entry = await setup_entry(hass)
+    assert _device(hass, entry).name == "Factorio main"
+
+
+async def test_device_sw_version_follows_mod_hello(hass: HomeAssistant, mqtt_mock, caplog):
+    entry = await setup_entry(hass)
+    await fire(hass, "factorio/main/hello", {"v": 1, "server_id": "main", "relay_version": "0.1.0", "mod_version": "0.1.0"})
+    assert _device(hass, entry).sw_version == "0.1.0"
+    assert "deprecated" not in caplog.text  # no deprecated device-registry lookups
+
+
+@pytest.mark.parametrize("lang,no_players,unknown", [("en", "No players", "Unknown"), ("uk", "Немає гравців", "Невідомо")])
+async def test_pause_reason_is_translated(hass: HomeAssistant, mqtt_mock, lang, no_players, unknown):
+    from homeassistant.helpers.translation import async_get_translations
+
+    await setup_entry(hass)
+    tr = await async_get_translations(hass, lang, "entity", {DOMAIN})
+    base = f"component.{DOMAIN}.entity.sensor.game_state.state_attributes.reason.state"
+    assert (tr.get(f"{base}.no_players"), tr.get(f"{base}.unknown")) == (no_players, unknown)
+
+
+async def test_integration_ships_brand_icon(hass: HomeAssistant):
+    from homeassistant.loader import async_get_custom_components
+
+    integration = (await async_get_custom_components(hass))[DOMAIN]
+    assert integration.has_branding
+    assert (Path(integration.file_path) / "brand" / "icon.png").is_file()

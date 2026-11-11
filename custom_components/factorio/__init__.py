@@ -50,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FactorioConfigEntry) -> 
         if core.mod_version == known_version["mod"]:
             return
         registry = dr.async_get(hass)
-        device = registry.async_get_device(identifiers={(DOMAIN, server_id)})
+        device = registry.async_get_device_by_identifier((DOMAIN, server_id), entry.entry_id)
         if device is not None:
             known_version["mod"] = core.mod_version
             registry.async_update_device(device.id, sw_version=core.mod_version)

@@ -71,7 +71,11 @@
         },
         "state_attributes": {
           "reason": {
-            "name": "Reason"
+            "name": "Reason",
+            "state": {
+              "no_players": "No players",
+              "unknown": "Unknown"
+            }
           },
           "since": {
             "name": "Since"

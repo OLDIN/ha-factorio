@@ -71,7 +71,11 @@
         },
         "state_attributes": {
           "reason": {
-            "name": "Причина"
+            "name": "Причина",
+            "state": {
+              "no_players": "Немає гравців",
+              "unknown": "Невідомо"
+            }
           },
           "since": {
             "name": "З"
