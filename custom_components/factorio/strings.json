@@ -21,7 +21,11 @@
         "title": "What to collect",
         "description": "The game collects and sends only what is enabled here.",
         "data": {
-          "players": "Players online"
+          "players": "Players: online, AFK, deaths",
+          "planets": "Bodies in the system",
+          "defense": "Defense: attacks, turrets, walls",
+          "evolution": "Enemy evolution",
+          "research": "Research"
         }
       }
     },
@@ -39,7 +43,11 @@
         "title": "What to collect",
         "description": "The game collects and sends only what is enabled here.",
         "data": {
-          "players": "Players online"
+          "players": "Players: online, AFK, deaths",
+          "planets": "Bodies in the system",
+          "defense": "Defense: attacks, turrets, walls",
+          "evolution": "Enemy evolution",
+          "research": "Research"
         }
       }
     }
@@ -58,6 +66,23 @@
       },
       "game_running": {
         "name": "Game running"
+      },
+      "under_attack": {
+        "name": "Under attack",
+        "state_attributes": {
+          "since_tick": {
+            "name": "Since tick"
+          },
+          "position": {
+            "name": "Position"
+          },
+          "gps": {
+            "name": "GPS tag"
+          },
+          "losses": {
+            "name": "Losses"
+          }
+        }
       }
     },
     "sensor": {
@@ -87,8 +112,69 @@
         "state_attributes": {
           "players": {
             "name": "Players"
+          },
+          "afk_minutes": {
+            "name": "AFK minutes"
           }
         }
+      },
+      "bodies": {
+        "name": "Bodies in system",
+        "state_attributes": {
+          "bodies": {
+            "name": "Bodies"
+          }
+        }
+      },
+      "research": {
+        "name": "Research",
+        "state_attributes": {
+          "progress": {
+            "name": "Progress"
+          },
+          "level": {
+            "name": "Level"
+          },
+          "queue": {
+            "name": "Queue"
+          },
+          "unlocks": {
+            "name": "Unlocks"
+          }
+        }
+      },
+      "recent_events": {
+        "name": "Recent events",
+        "state_attributes": {
+          "events": {
+            "name": "Events"
+          }
+        }
+      },
+      "turrets_no_ammo": {
+        "name": "Turrets without ammo",
+        "state_attributes": {
+          "total": {
+            "name": "Turrets in total"
+          },
+          "no_power": {
+            "name": "Without power"
+          },
+          "positions": {
+            "name": "Positions"
+          }
+        }
+      },
+      "walls_damaged": {
+        "name": "Damaged walls",
+        "state_attributes": {
+          "positions": {
+            "name": "Positions"
+          }
+        }
+      },
+      "evolution": {
+        "name": "Enemy evolution"
       }
     },
     "event": {
@@ -98,7 +184,13 @@
           "event_type": {
             "state": {
               "player_joined": "Player joined",
-              "player_left": "Player left"
+              "player_left": "Player left",
+              "attack_started": "Attack started",
+              "attack_ended": "Attack ended",
+              "turrets_no_ammo": "Turrets out of ammo",
+              "turrets_ok": "Turrets have ammo again",
+              "research_finished": "Research finished",
+              "player_died": "Player died"
             }
           }
         }

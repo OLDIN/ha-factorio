@@ -14,6 +14,8 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import CONF_SERVER_ID, DOMAIN, EVENT_TYPES
 from .core import FactorioCore, build_config
+from .entity import server_device_info
+from .planets import PlanetTracker
 from .providers import create_provider
 from .providers.base import Provider
 
@@ -25,6 +27,8 @@ PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.EVENT]
 class FactorioRuntime:
     core: FactorioCore
     provider: Provider
+    server_device_id: str
+    planets: PlanetTracker
 
 
 type FactorioConfigEntry = ConfigEntry[FactorioRuntime]
@@ -34,7 +38,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: FactorioConfigEntry) -> 
     server_id: str = entry.data[CONF_SERVER_ID]
     core = FactorioCore(server_id)
     provider = create_provider(hass, entry)
-    entry.runtime_data = FactorioRuntime(core=core, provider=provider)
+    # Registered up front: planet devices link to it by device id.
+    server_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, **server_device_info(server_id)
+    )
+    planets = PlanetTracker(hass, entry.entry_id, core)
+    entry.runtime_data = FactorioRuntime(
+        core=core, provider=provider, server_device_id=server_device.id, planets=planets
+    )
 
     @callback
     def fire_bus_event(name: str, data: dict[str, Any]) -> None:
@@ -57,6 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FactorioConfigEntry) -> 
 
     entry.async_on_unload(core.add_event_listener(fire_bus_event))
     entry.async_on_unload(core.add_listener(update_device_version))
+    entry.async_on_unload(core.add_listener(planets.async_update))
 
     await provider.async_start(core.handle_message)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

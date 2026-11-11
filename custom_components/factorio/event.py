@@ -1,4 +1,4 @@
-"""Event entity: one-shot game events (player joined/left)."""
+"""Event entity: one-shot game events (players, attacks, turrets, research)."""
 
 from __future__ import annotations
 
