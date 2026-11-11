@@ -84,6 +84,16 @@ the integration options, and the game collects only what is enabled.
 - [ ] Mod on the Factorio mod portal; integration in the default HACS list
 - Ideas: production rates, logistics storage, power network, platform ammo/fuel
 
+## Releasing
+
+```bash
+python3 scripts/bump_version.py patch --pr   # or minor / major
+```
+
+Bumps `manifest.json`, writes `RELEASE_NOTES_X.Y.Z.md` from the commits since the
+last tag and opens a PR. After the merge the `Release` workflow tags `vX.Y.Z` and
+publishes the GitHub Release that HACS installs.
+
 ## Development
 
 ```bash
