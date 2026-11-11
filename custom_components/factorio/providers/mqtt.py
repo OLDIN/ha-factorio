@@ -16,7 +16,7 @@ from ..const import TOPIC_PREFIX
 from .base import MessageKind, Provider, ProviderMessage
 
 _LOGGER = logging.getLogger(__name__)
-_KINDS: tuple[MessageKind, ...] = ("availability", "hello", "state", "event")
+_KINDS: tuple[MessageKind, ...] = ("availability", "hello", "state", "event", "data")
 
 
 class MqttProvider(Provider):
@@ -29,9 +29,13 @@ class MqttProvider(Provider):
         if not await mqtt.async_wait_for_mqtt_client(self._hass):
             raise ConfigEntryNotReady("MQTT is not available")
         for kind in _KINDS:
-            self._unsubscribe.append(
-                await mqtt.async_subscribe(self._hass, f"{self._base}/{kind}", self._handler(kind, on_message), qos=1)
-            )
+            topic = f"{self._base}/{kind}"
+            if kind == "data":
+                handler = self._data_handler(on_message)
+                topic += "/+"
+            else:
+                handler = self._handler(kind, on_message)
+            self._unsubscribe.append(await mqtt.async_subscribe(self._hass, topic, handler, qos=1))
 
     @staticmethod
     def _handler(kind: MessageKind, on_message: Callable[[ProviderMessage], None]) -> Callable[[ReceiveMessage], None]:
@@ -47,6 +51,27 @@ class MqttProvider(Provider):
                     _LOGGER.warning("Ignored invalid JSON on %s: %r", msg.topic, msg.payload)
                     return
             on_message(ProviderMessage(kind=kind, payload=payload))
+
+        return handle
+
+    @staticmethod
+    def _data_handler(on_message: Callable[[ProviderMessage], None]) -> Callable[[ReceiveMessage], None]:
+        @callback
+        def handle(msg: ReceiveMessage) -> None:
+            category = str(msg.topic).rsplit("/", 1)[-1]
+            data: Any = None  # an empty payload: the category was turned off
+            if msg.payload:
+                try:
+                    body = json.loads(msg.payload)
+                except ValueError:
+                    _LOGGER.warning("Ignored invalid JSON on %s: %r", msg.topic, msg.payload)
+                    return
+                if not isinstance(body, dict):
+                    return
+                data = body.get("data")
+                if not isinstance(data, dict):
+                    data = {} if isinstance(data, list) else None
+            on_message(ProviderMessage(kind="data", payload={"category": category, "data": data}))
 
         return handle
 

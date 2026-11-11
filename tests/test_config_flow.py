@@ -39,7 +39,7 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, mqtt_mock):
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "Factorio main"
     assert result["data"] == DATA
-    assert result["options"] == {"players": True}
+    assert result["options"] == {"players": True, "planets": True, "defense": True, "evolution": True, "research": True}
 
 
 async def test_user_flow_rejects_bad_server_id(hass: HomeAssistant, mqtt_mock):
@@ -80,4 +80,4 @@ async def test_options_flow_toggles_players(hass: HomeAssistant, mqtt_mock):
     assert result["step_id"] == "init"
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"players": False})
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert entry.options == {"players": False}
+    assert entry.options == {**{"players": True, "planets": True, "defense": True, "evolution": True, "research": True}, "players": False}
