@@ -1,6 +1,5 @@
-import { LitElement, html } from "lit";
-import { cardStyles, ensureFonts } from "./shared/theme";
 import { FactorioMapCard } from "./map/factorio-map-card";
+import { FactorioTimelineCard } from "./timeline/factorio-timeline-card";
 
 interface CustomCardEntry {
   type: string;
@@ -13,27 +12,6 @@ declare global {
   interface Window {
     customCards?: CustomCardEntry[];
   }
-}
-
-// Stub: the real timeline card arrives in the next task.
-class FactorioStubCard extends LitElement {
-  static styles = cardStyles;
-  protected heading = "Factorio";
-  setConfig(): void {}
-  getCardSize(): number {
-    return 2;
-  }
-  connectedCallback(): void {
-    super.connectedCallback();
-    ensureFonts();
-  }
-  render() {
-    return html`<ha-card><div style="padding:16px">${this.heading}</div></ha-card>`;
-  }
-}
-
-class FactorioTimelineCard extends FactorioStubCard {
-  protected heading = "Factorio last hour (coming soon)";
 }
 
 const CARDS = [
