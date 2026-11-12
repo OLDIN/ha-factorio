@@ -6,6 +6,9 @@ import { asDict, asList, type HassState } from "./types";
 
 type States = Record<string, HassState | undefined>;
 
+/** Stop reasons the integration reports; anything else is shown without a reason. */
+const REASONS = new Set(["no_input", "output_full", "no_power"]);
+
 export interface Machines {
   total: number;
   working: number;
@@ -61,8 +64,8 @@ export function readLines(states: States, sid: string, planet: string): ProblemL
     if (total === 0) continue;
     lines.push({
       recipe: line.recipe,
-      reason: typeof line.reason === "string" ? line.reason : "",
-      stopped: whole(line.stopped),
+      reason: typeof line.reason === "string" && REASONS.has(line.reason) ? line.reason : "",
+      stopped: Math.min(whole(line.stopped), total),
       total,
       minutes: whole(line.minutes),
     });
@@ -92,5 +95,7 @@ export function lineText(line: ProblemLine, lang: string): string {
 
 /** "Iron ore: 3 of 12 drills depleted" — one resource with depleted drills as a row of text. */
 export function drillText(drill: DepletedDrills, lang: string): string {
-  return tn(lang, "pl_drills", drill.total, { resource: prettyName(drill.resource), depleted: drill.depleted, total: drill.total });
+  // The mod counts drills that were depleted before its first scan under "unknown".
+  const resource = drill.resource === "unknown" ? t(lang, "resource_unknown") : prettyName(drill.resource);
+  return tn(lang, "pl_drills", drill.total, { resource, depleted: drill.depleted, total: drill.total });
 }
