@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Hass } from "../src/shared/types";
 import { buildPills } from "../src/timeline/factorio-timeline-card";
 
@@ -79,5 +79,82 @@ describe("factorio-timeline-card", () => {
   it("finds the server for a new card", async () => {
     const ctor = customElements.get("factorio-timeline-card") as unknown as { getStubConfig(h: Hass): { server_id: string } };
     expect(ctor.getStubConfig(hass([])).server_id).toBe("main");
+  });
+});
+
+describe("buildPills edge cases", () => {
+  const one = (time: unknown) => buildPills([{ event: "player_joined", time, data: { player: "a" } }], "en", 60, NOW);
+
+  it("clamps a future timestamp (clock skew) to now", () => {
+    const [p] = one(ago(-5));
+    expect(p.x).toBe(1);
+    expect(Number.isNaN(p.x)).toBe(false);
+  });
+  it("skips invalid, missing and null times without throwing", () => {
+    expect(one("not a date")).toEqual([]);
+    expect(one(null)).toEqual([]);
+    expect(one(undefined)).toEqual([]);
+    expect(buildPills([{ event: "player_joined", data: {} }, null, 5, "x"], "en", 60, NOW)).toEqual([]);
+  });
+  it("treats a timestamp without Z or offset as UTC", () => {
+    const naive = new Date(NOW - 2 * 60_000).toISOString().replace("Z", "");
+    expect(one(naive)[0].x).toBeCloseTo(0.733, 3);
+    expect(one(naive.replace("T", " "))[0].x).toBeCloseTo(0.733, 3);
+  });
+  it("honours an explicit offset", () => {
+    expect(one("2026-05-01T14:00:00+02:00")[0].x).toBe(1);
+  });
+  it("drops events older than the window", () => {
+    expect(one(ago(61))).toEqual([]);
+    expect(one(ago(59))).toHaveLength(1);
+    expect(buildPills([{ event: "player_joined", time: ago(11), data: {} }], "en", 10, NOW)).toEqual([]);
+  });
+});
+
+describe("timer lifecycle and shouldUpdate", () => {
+  type Card = HTMLElement & { setConfig(c: unknown): void; hass: Hass; shouldUpdate(c: Map<string, unknown>): boolean };
+  const make = (): Card => {
+    const el = document.createElement("factorio-timeline-card") as Card;
+    el.setConfig({ server_id: "main" });
+    return el;
+  };
+
+  it("starts a 30 s timer on connect, clears it on disconnect, restarts on reconnect", () => {
+    vi.useFakeTimers();
+    try {
+      const el = make();
+      el.hass = hass([]);
+      expect(vi.getTimerCount()).toBe(0);
+      document.body.appendChild(el);
+      expect(vi.getTimerCount()).toBe(1);
+      const spy = vi.spyOn(el as unknown as { requestUpdate(): void }, "requestUpdate");
+      vi.advanceTimersByTime(30_000);
+      expect(spy).toHaveBeenCalledTimes(1);
+      el.remove();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(60_000);
+      expect(spy).toHaveBeenCalledTimes(1);
+      document.body.appendChild(el);
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(30_000);
+      expect(spy).toHaveBeenCalledTimes(2);
+      el.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-renders only when the events entity or the language changed", () => {
+    const el = make();
+    const old = hass([]);
+    el.hass = old;
+    const changed = (next: Hass) => {
+      el.hass = next;
+      return el.shouldUpdate(new Map([["hass", old]]));
+    };
+    const other = { ...old.states, "sensor.factorio_main_evolution": { state: "1", attributes: {} } };
+    expect(changed({ ...old, states: other })).toBe(false);
+    expect(changed({ ...old, states: { ...old.states, "sensor.factorio_main_recent_events": { state: "2", attributes: { events: [] } } } })).toBe(true);
+    expect(changed({ ...old, language: "uk", locale: { language: "uk" } })).toBe(true);
   });
 });

@@ -29,6 +29,14 @@ interface Pill {
 
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
+/** Epoch ms of an event time; the sensor sends UTC, so a timestamp without Z or an offset is UTC; NaN if unusable. */
+export function parseTime(value: unknown): number {
+  if (typeof value !== "string") return NaN;
+  const text = value.trim();
+  const naive = /^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(text);
+  return Date.parse(naive ? `${text.replace(" ", "T")}Z` : text);
+}
+
 /** Width of a pill in px: text plus the marker and the padding (an estimate; used for stacking only). */
 const pillWidth = (text: string): number => Math.ceil(text.length * 6.9 + 34);
 
@@ -74,7 +82,7 @@ export function buildPills(raw: unknown, lang: string, windowMin: number, now: n
     const e = asDict(item);
     const event = str(e.event);
     const lane = laneOf(event);
-    const at = Date.parse(str(e.time));
+    const at = parseTime(e.time);
     if (lane === null || !Number.isFinite(at)) return;
     const minutes = Math.max(0, (now - at) / 60_000);
     if (minutes > windowMin) return;
