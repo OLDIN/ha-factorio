@@ -13,6 +13,8 @@ export function asList<T = unknown>(value: unknown): T[] {
 export interface HassState {
   state: string;
   attributes: Record<string, unknown>;
+  /** ISO time of the last state change (Home Assistant always sets it). */
+  last_changed?: string;
 }
 
 export interface Hass {

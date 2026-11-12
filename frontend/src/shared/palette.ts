@@ -16,5 +16,5 @@ function fnv1a(text: string): number {
 }
 
 export function planetColor(name: string): string {
-  return VANILLA[name] ?? `hsl(${fnv1a(name) % 360}, 45%, 62%)`;
+  return Object.hasOwn(VANILLA, name) ? VANILLA[name] : `hsl(${fnv1a(name) % 360}, 45%, 62%)`;
 }
