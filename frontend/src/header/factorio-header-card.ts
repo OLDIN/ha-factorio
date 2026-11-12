@@ -2,7 +2,7 @@ import { LitElement, css, html, nothing, svg, type PropertyValues } from "lit";
 import { defineEditor } from "../shared/editor";
 import { findServer, langOf, serverChanged } from "../shared/hass";
 import { t, tn } from "../shared/i18n";
-import { bodyName, researchName } from "../shared/names";
+import { bodyNameAccusative, researchName } from "../shared/names";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import type { Hass } from "../shared/types";
 import { headerModel } from "./model";
@@ -78,7 +78,7 @@ export class FactorioHeaderCard extends LitElement {
         ${m.game === null ? nothing : html`<span class="chip state ${m.game}"><i class="dot"></i>${t(lang, `hd_${m.game}`)}</span>`}
         ${m.attacked.length === 0
           ? nothing
-          : html`<span class="chip attack">${SHIELD}${t(lang, "hd_attack", { planets: m.attacked.map((b) => bodyName(b, lang)).join(", ") })}</span>`}
+          : html`<span class="chip attack">${SHIELD}${t(lang, "hd_attack", { planets: m.attacked.map((b) => bodyNameAccusative(b, lang)).join(", ") })}</span>`}
         ${m.players === null
           ? nothing
           : html`<span class="players">${m.players === 0 ? t(lang, "hd_players_none") : tn(lang, "hd_players", m.players)}</span>`}

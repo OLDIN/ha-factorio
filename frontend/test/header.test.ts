@@ -69,6 +69,13 @@ describe("factorio-header-card", () => {
     el.remove();
   });
 
+  it("puts the attacked planets in the accusative after «на»", async () => {
+    const both = { ...STATES, "binary_sensor.factorio_main_gleba_under_attack": { state: "on", attributes: {} } };
+    const el = await mount(hass(both));
+    expect(el.shadowRoot!.querySelector(".chip.attack")?.textContent?.trim()).toBe("Напад на Глебу, Наувіс");
+    el.remove();
+  });
+
   it("shows a paused game, nobody online, no attack chip and a custom title", async () => {
     const quiet = {
       ...STATES,

@@ -197,6 +197,19 @@ describe("placeCallouts", () => {
     expect(c.y + c.height).toBeGreaterThan(c.baselines[c.baselines.length - 1]);
   });
 
+  it("leads past other bodies' labels when it can", () => {
+    // The summary keeps the box right of x = 420; straight from the body, the lead would cut
+    // through the label of "otherworld".
+    const placed: Placed[] = [
+      { name: "home", cx: 400, cy: 250, r: 18, label: { x: 400, y: 284, anchor: "middle" }, parent: null },
+      { name: "otherworld", cx: 360, cy: 135, r: 9, label: { x: 375, y: 140, anchor: "start" }, parent: null },
+    ];
+    const [c] = placeCallouts([warningInput("home")], placed, { ...SIZE, top: { x0: 420, x1: 1344 } });
+    expect(c.band).toBe("top");
+    expect(segmentHitsRect(c.line, labelRect(placed[1]))).toBe(false);
+    checkPlacement([c], placed);
+  });
+
   it("never wraps a count away from its item", () => {
     const attack: HassState = {
       state: "on",
