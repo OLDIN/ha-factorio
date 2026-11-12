@@ -1,5 +1,7 @@
 """Config and options flows."""
 
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -9,7 +11,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.factorio.const import DOMAIN
+from custom_components.factorio.const import CATEGORIES, DOMAIN
 
 DATA = {"provider": "mqtt", "server_id": "main"}
 
@@ -39,7 +41,7 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, mqtt_mock):
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "Factorio main"
     assert result["data"] == DATA
-    assert result["options"] == {"players": True}
+    assert result["options"] == {"players": True, "planets": True, "defense": True, "evolution": True, "research": True}
 
 
 async def test_user_flow_rejects_bad_server_id(hass: HomeAssistant, mqtt_mock):
@@ -80,4 +82,23 @@ async def test_options_flow_toggles_players(hass: HomeAssistant, mqtt_mock):
     assert result["step_id"] == "init"
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"players": False})
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert entry.options == {"players": False}
+    assert entry.options == {**{"players": True, "planets": True, "defense": True, "evolution": True, "research": True}, "players": False}
+
+
+async def test_options_flow_has_all_categories(hass: HomeAssistant, mqtt_mock):
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="main", data=DATA, options={})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    schema = result["data_schema"].schema
+    assert [str(key) for key in schema] == CATEGORIES
+    assert all(key.default() is True for key in schema)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options == dict.fromkeys(CATEGORIES, True)
+
+    # Every switch has a label, in the setup step and in the options, in every language.
+    component = Path(__file__).parent.parent / "custom_components" / DOMAIN
+    for name in ("strings.json", "translations/en.json", "translations/uk.json"):
+        strings = json.loads((component / name).read_text(encoding="utf-8"))
+        for step in (strings["config"]["step"]["categories"], strings["options"]["step"]["init"]):
+            assert sorted(step["data"]) == sorted(CATEGORIES), name

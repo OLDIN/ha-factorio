@@ -1,0 +1,62 @@
+[
+  {
+    "name": "nauvis",
+    "kind": "planet",
+    "x": 14.82,
+    "y": 2.35,
+    "distance": 15,
+    "orientation": 0.275,
+    "magnitude": 1,
+    "parent": null,
+    "state": "built",
+    "unlocked_by": null
+  },
+  {
+    "name": "vulcanus",
+    "kind": "planet",
+    "x": 5.88,
+    "y": -8.09,
+    "distance": 10,
+    "orientation": 0.1,
+    "magnitude": 1.5,
+    "parent": null,
+    "state": "built",
+    "unlocked_by": "planet-discovery-vulcanus"
+  },
+  {
+    "name": "gleba",
+    "kind": "planet",
+    "x": 17.82,
+    "y": -9.08,
+    "distance": 20,
+    "orientation": 0.175,
+    "magnitude": 1.1,
+    "parent": null,
+    "state": "unlocked",
+    "unlocked_by": "planet-discovery-gleba"
+  },
+  {
+    "name": "fulgora",
+    "kind": "planet",
+    "x": 22.28,
+    "y": 11.35,
+    "distance": 25,
+    "orientation": 0.325,
+    "magnitude": 0.9,
+    "parent": null,
+    "state": "built",
+    "unlocked_by": "planet-discovery-fulgora"
+  },
+  {
+    "name": "aquilo",
+    "kind": "planet",
+    "x": 34.57,
+    "y": -5.48,
+    "distance": 35,
+    "orientation": 0.225,
+    "magnitude": 1,
+    "parent": null,
+    "state": "locked",
+    "unlocked_by": "planet-discovery-aquilo"
+  }
+]

@@ -21,7 +21,11 @@
         "title": "Що збирати",
         "description": "Гра збирає й надсилає лише те, що тут увімкнено.",
         "data": {
-          "players": "Гравці онлайн"
+          "players": "Гравці: онлайн, AFK, смерті",
+          "planets": "Тіла системи",
+          "defense": "Оборона: напади, турелі, стіни",
+          "evolution": "Еволюція ворогів",
+          "research": "Дослідження"
         }
       }
     },
@@ -39,7 +43,11 @@
         "title": "Що збирати",
         "description": "Гра збирає й надсилає лише те, що тут увімкнено.",
         "data": {
-          "players": "Гравці онлайн"
+          "players": "Гравці: онлайн, AFK, смерті",
+          "planets": "Тіла системи",
+          "defense": "Оборона: напади, турелі, стіни",
+          "evolution": "Еволюція ворогів",
+          "research": "Дослідження"
         }
       }
     }
@@ -58,6 +66,23 @@
       },
       "game_running": {
         "name": "Гра йде"
+      },
+      "under_attack": {
+        "name": "Під атакою",
+        "state_attributes": {
+          "since_tick": {
+            "name": "З тіку"
+          },
+          "position": {
+            "name": "Позиція"
+          },
+          "gps": {
+            "name": "GPS-мітка"
+          },
+          "losses": {
+            "name": "Втрати"
+          }
+        }
       }
     },
     "sensor": {
@@ -87,8 +112,69 @@
         "state_attributes": {
           "players": {
             "name": "Гравці"
+          },
+          "afk_minutes": {
+            "name": "AFK, хв"
           }
         }
+      },
+      "bodies": {
+        "name": "Тіла системи",
+        "state_attributes": {
+          "bodies": {
+            "name": "Тіла"
+          }
+        }
+      },
+      "research": {
+        "name": "Дослідження",
+        "state_attributes": {
+          "progress": {
+            "name": "Прогрес"
+          },
+          "level": {
+            "name": "Рівень"
+          },
+          "queue": {
+            "name": "Черга"
+          },
+          "unlocks": {
+            "name": "Відкриває"
+          }
+        }
+      },
+      "recent_events": {
+        "name": "Останні події",
+        "state_attributes": {
+          "events": {
+            "name": "Події"
+          }
+        }
+      },
+      "turrets_no_ammo": {
+        "name": "Турелі без набоїв",
+        "state_attributes": {
+          "total": {
+            "name": "Усього турелей"
+          },
+          "no_power": {
+            "name": "Без енергії"
+          },
+          "positions": {
+            "name": "Позиції"
+          }
+        }
+      },
+      "walls_damaged": {
+        "name": "Пошкоджені стіни",
+        "state_attributes": {
+          "positions": {
+            "name": "Позиції"
+          }
+        }
+      },
+      "evolution": {
+        "name": "Еволюція ворогів"
       }
     },
     "event": {
@@ -98,7 +184,13 @@
           "event_type": {
             "state": {
               "player_joined": "Гравець зайшов",
-              "player_left": "Гравець вийшов"
+              "player_left": "Гравець вийшов",
+              "attack_started": "Напад почався",
+              "attack_ended": "Напад закінчився",
+              "turrets_no_ammo": "Турелі без набоїв",
+              "turrets_ok": "Турелі знову з набоями",
+              "research_finished": "Дослідження завершено",
+              "player_died": "Гравець загинув"
             }
           }
         }

@@ -19,6 +19,8 @@ STATE = {
     "game_state_since": "2026-11-11T10:00:00+00:00", "tick": 300,
     "players_online": 1, "data": {"players": {"online": ["alice"]}},
 }
+CONFIG_ALL_ON = '{"v":1,"categories":{"players":true,"planets":true,"defense":true,"evolution":true,"research":true}}'
+CONFIG_PLAYERS_OFF = CONFIG_ALL_ON.replace('"players":true', '"players":false')
 ENTITIES = [
     "binary_sensor.factorio_main_connection",
     "binary_sensor.factorio_main_game_running",
@@ -54,7 +56,7 @@ async def fire(hass: HomeAssistant, topic: str, payload) -> None:
 
 async def test_setup_publishes_config_retained(hass: HomeAssistant, mqtt_mock):
     await setup_entry(hass)
-    assert ("factorio/main/config", '{"v":1,"categories":{"players":true}}', 1, True) in published(mqtt_mock)
+    assert ("factorio/main/config", CONFIG_ALL_ON, 1, True) in published(mqtt_mock)
 
 
 async def test_entities_from_state(hass: HomeAssistant, mqtt_mock):
@@ -120,7 +122,7 @@ async def test_options_change_republishes_config(hass: HomeAssistant, mqtt_mock)
     entry = await setup_entry(hass)
     hass.config_entries.async_update_entry(entry, options={"players": False})
     await hass.async_block_till_done()
-    assert ("factorio/main/config", '{"v":1,"categories":{"players":false}}', 1, True) in published(mqtt_mock)
+    assert ("factorio/main/config", CONFIG_PLAYERS_OFF, 1, True) in published(mqtt_mock)
 
 
 async def test_unload_keeps_config(hass: HomeAssistant, mqtt_mock):
@@ -207,3 +209,25 @@ async def test_integration_ships_brand_icon(hass: HomeAssistant):
     integration = (await async_get_custom_components(hass))[DOMAIN]
     assert integration.has_branding
     assert (Path(integration.file_path) / "brand" / "icon.png").is_file()
+
+
+async def test_data_topic_reaches_core(hass: HomeAssistant, mqtt_mock):
+    entry = await setup_entry(hass)
+    core = entry.runtime_data.core
+    await fire(hass, "factorio/main/data/evolution", {"v": 1, "tick": 5, "data": {"by_planet": {"nauvis": 0.3}}})
+    assert core.evolution("nauvis") == 0.3
+    await fire(hass, "factorio/main/data/evolution", "")
+    assert core.category("evolution") is None
+    await fire(hass, "factorio/main/data/evolution", "{not json")
+    assert core.category("evolution") is None
+
+
+async def test_ha_restart_restores_data_from_retained(hass: HomeAssistant, mqtt_mock):
+    """Retained data topics arrive at startup while the relay is offline."""
+    entry = await setup_entry(hass)
+    core = entry.runtime_data.core
+    await fire(hass, "factorio/main/data/players", {"v": 1, "tick": 5, "data": {"online": ["alice"]}})
+    await fire(hass, "factorio/main/data/planets", {"v": 1, "tick": 5, "data": {"bodies": [{"name": "nauvis", "kind": "planet", "state": "built"}]}})
+    await fire(hass, "factorio/main/availability", "offline")
+    assert core.players == ["alice"]
+    assert core.built_planets == ["nauvis"]

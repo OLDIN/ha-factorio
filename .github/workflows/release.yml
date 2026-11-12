@@ -58,10 +58,17 @@ jobs:
             echo "tag=false" >> "$GITHUB_OUTPUT"
           fi
           if gh release view "$TAG" --json tagName > /dev/null 2>&1; then
-            echo "::notice::$TAG is already released, nothing to do"
             echo "release=true" >> "$GITHUB_OUTPUT"
+            # A release without the HACS zip (e.g. an interrupted run) is finished too.
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -x 'factorio.zip' > /dev/null; then
+              echo "::notice::$TAG is already released with factorio.zip, nothing to do"
+              echo "asset=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "asset=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "asset=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create tag
@@ -75,6 +82,38 @@ jobs:
           git tag -a "$TAG" -m "Release $VERSION"
           git push origin "refs/tags/$TAG"
 
+      - name: Check out the tagged commit
+        # The zip must contain exactly what the tag points to, not whatever main
+        # holds now (manual dispatch or a re-run after later commits).
+        if: steps.check.outputs.asset == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: git checkout --detach "refs/tags/$TAG"
+
+      - name: Set up Node
+        if: steps.check.outputs.asset == 'false'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build card bundle
+        if: steps.check.outputs.asset == 'false'
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Package integration for HACS
+        if: steps.check.outputs.asset == 'false'
+        run: |
+          test -f custom_components/factorio/www/factorio-cards.js
+          # HACS unpacks the zip straight into custom_components/factorio:
+          # zip the contents, not the folder.
+          (cd custom_components/factorio && zip -r -X "$GITHUB_WORKSPACE/factorio.zip" . -x '__pycache__/*' '*/__pycache__/*' '*.pyc')
+
       - name: Create GitHub Release
         if: steps.check.outputs.release == 'false'
         env:
@@ -84,9 +123,17 @@ jobs:
         run: |
           notes="RELEASE_NOTES_${VERSION}.md"
           if [ -f "$notes" ]; then
-            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes"
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes" factorio.zip
           else
             echo "::warning::$notes not found, using GitHub-generated notes"
-            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes factorio.zip
           fi
           echo "### Released [$TAG](${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HACS zip
+        # Also repairs an existing release that lacks the asset; --clobber makes a re-run safe.
+        if: steps.check.outputs.asset == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release upload "$TAG" factorio.zip --clobber

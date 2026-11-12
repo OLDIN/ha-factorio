@@ -1,0 +1,46 @@
+# Dark "factory blueprint" theme for the Factorio dashboard.
+# Install: copy to /config/themes/factorio.yaml (see README, "Dashboard").
+factorio:
+  # Page and cards
+  primary-background-color: "#0b1730"
+  secondary-background-color: "#0e1c38"
+  lovelace-background: "#0b1730"
+  card-background-color: "#0e1c38"
+  ha-card-background: "#0e1c38"
+  ha-card-border-color: "#1f3460"
+  ha-card-border-width: 1px
+  ha-card-box-shadow: none
+  divider-color: "#1f3460"
+  # Text
+  primary-text-color: "#edf2f8"
+  secondary-text-color: "#a3b4cf"
+  disabled-text-color: "#6c7d99"
+  text-primary-color: "#0b1730"
+  # Accent
+  primary-color: "#f5a524"
+  accent-color: "#f5a524"
+  dark-primary-color: "#c4841a"
+  light-primary-color: "#f8c466"
+  # Header and sidebar
+  app-header-background-color: "#0e1c38"
+  app-header-text-color: "#edf2f8"
+  sidebar-background-color: "#0b1730"
+  sidebar-text-color: "#a3b4cf"
+  sidebar-selected-background-color: "#12244a"
+  sidebar-selected-icon-color: "#f5a524"
+  sidebar-selected-text-color: "#edf2f8"
+  # Controls
+  paper-card-background-color: "#0e1c38"
+  switch-checked-color: "#f5a524"
+  switch-checked-track-color: "#f5a524"
+  slider-color: "#f5a524"
+  slider-bar-color: "#f5a524"
+  mdc-theme-primary: "#f5a524"
+  # States
+  state-icon-color: "#a3b4cf"
+  state-icon-active-color: "#f5a524"
+  state-active-color: "#f5a524"
+  success-color: "#4cc38a"
+  warning-color: "#f5a524"
+  error-color: "#ff5d4f"
+  info-color: "#5ccfff"
