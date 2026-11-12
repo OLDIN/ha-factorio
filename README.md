@@ -11,7 +11,7 @@ described in its [docs/protocol.md](https://github.com/OLDIN/factorio-ha-bridge/
 Factorio mod ──UDP──▶ relay ──MQTT──▶ this integration
 ```
 
-Status: stage 2a (planets, defense, evolution, research, cards).
+Status: stage 2a (planets, defense, evolution, research) with the dashboard cards.
 
 ## Install
 
@@ -26,9 +26,19 @@ Status: stage 2a (planets, defense, evolution, research, cards).
 ## Dashboard
 
 The cards come with the integration: Home Assistant loads `factorio-cards.js`
-by itself, so there is nothing to add under Dashboard resources. They are
-`custom:factorio-map-card` (`server_id`, `height` 360-1200, `label_healthy`) and
-`custom:factorio-timeline-card` (`server_id`, `window_minutes` 5-60).
+by itself, so there is nothing to add under Dashboard resources. Every card takes
+`server_id` and has a visual editor.
+
+| Card | What it shows | Options |
+|---|---|---|
+| `custom:factorio-header-card` | title, game state, attacked planets, players online, research progress | `title` (default "Factorio") |
+| `custom:factorio-map-card` | all space bodies on a system map, attacks and defense callouts | `height` 360-1200, `label_healthy` |
+| `custom:factorio-planets-card` | planets that need attention first (attack, turrets, walls, evolution), then the healthy, unlocked and not yet unlocked ones | |
+| `custom:factorio-players-card` | who is online or AFK, who left last, deaths of the last hour | |
+| `custom:factorio-timeline-card` | events of the last hour on a log scale, with filters | `window_minutes` 5-60 |
+
+In a Ukrainian interface the vanilla planets get Ukrainian names; mod planets keep
+their names from the game.
 
 **Theme.** Copy [examples/themes/factorio.yaml](examples/themes/factorio.yaml) to
 `/config/themes/factorio.yaml` and make sure `configuration.yaml` has
@@ -42,11 +52,10 @@ Reload themes (Developer tools → YAML → "Frontend: reload themes", or restar
 then pick "factorio" in your profile or set `theme: factorio` on a view.
 
 **Example dashboard.** [examples/dashboard.yaml](examples/dashboard.yaml) is a
-sections view: a header (game state, attack, players, research; needs
-[Mushroom](https://github.com/piitaya/lovelace-mushroom) from HACS), the map and
-the timeline. Create a new dashboard, open it, then ⋮ → Edit → ⋮ → Raw
-configuration editor, and paste the file. Replace `main` with your server id
-(`server_id: main` and the `factorio_main_` part of entity ids).
+sections view laid out like the mockup: the header and the map, the planets with
+the players on their right, and the last hour. It needs nothing but this
+integration. Create a new dashboard, open it, then ⋮ → Edit → ⋮ → Raw
+configuration editor, and paste the file. Replace `main` with your server id.
 
 ## Entities
 
@@ -108,6 +117,12 @@ Stage 2a (v0.2, needs bridge 0.2):
 - [x] Players: AFK minutes, deaths
 - [x] Events: `player_joined`, `player_left`, `player_died`, `attack_started`, `attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`
 - [x] Map card and timeline card (fonts are bundled, no third-party requests)
+
+v0.3 (the dashboard as in the mockup):
+
+- [x] Header, planets and players cards; the example dashboard needs no other cards
+- [x] Attacks during a pause say so instead of counting minutes
+- [x] Ukrainian names of the vanilla planets in a Ukrainian interface
 
 ### Next
 
