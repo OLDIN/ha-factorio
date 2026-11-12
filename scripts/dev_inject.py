@@ -1,7 +1,8 @@
-"""Add the Factorio config entry and the example dashboard to a stopped dev Home Assistant.
+"""Add the MQTT and Factorio config entries and the example dashboard to a stopped dev Home Assistant.
 
-usage: dev_inject.py <config_dir>
-The dashboard is examples/dashboard.yaml as the default dashboard (server id `main`).
+usage: dev_inject.py <config_dir> <mqtt_port>
+MQTT points at the dev broker on 127.0.0.1; the dashboard is examples/dashboard.yaml as the
+default dashboard (server id `main`).
 """
 
 from __future__ import annotations
@@ -27,7 +28,27 @@ store = (
     if path.is_file()
     else {"version": 1, "minor_version": 1, "key": "core.config_entries", "data": {"entries": []}}
 )
-entries = [e for e in store["data"]["entries"] if e.get("domain") != "factorio"]
+entries = [e for e in store["data"]["entries"] if e.get("domain") not in ("factorio", "mqtt")]
+entries.append(
+    {
+        "created_at": now,
+        "data": {"broker": "127.0.0.1", "port": int(sys.argv[2])},
+        "disabled_by": None,
+        "discovery_keys": {},
+        "domain": "mqtt",
+        "entry_id": uuid.uuid4().hex,
+        "minor_version": 1,
+        "modified_at": now,
+        "options": {},
+        "pref_disable_new_entities": False,
+        "pref_disable_polling": False,
+        "source": "user",
+        "subentries": [],
+        "title": "127.0.0.1",
+        "unique_id": None,
+        "version": 2,
+    }
+)
 entries.append(
     {
         "created_at": now,
@@ -55,4 +76,4 @@ dashboard = yaml.safe_load((ROOT / "examples" / "dashboard.yaml").read_text())
 (storage / "lovelace").write_text(
     json.dumps({"version": 1, "minor_version": 1, "key": "lovelace", "data": {"config": {"views": dashboard["views"]}}}, indent=2)
 )
-print("factorio entry and dashboard injected")
+print("mqtt and factorio entries and the dashboard injected")

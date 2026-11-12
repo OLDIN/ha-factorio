@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Runs a real Home Assistant (a process with its UI) with this integration installed from
-# the working tree, to see the cards in the real frontend before a release.
+# the working tree, and a local MQTT broker standing in for the relay's, to see the whole
+# chain (MQTT -> integration -> entities -> cards) before a release.
 #
-#   scripts/dev_ha_ui.sh up                  build the cards, start HA, onboard it, add the
-#                                            config entry, the theme and the example dashboard
-#   scripts/dev_ha_ui.sh scenario <name>     paused | running | calm (see dev_states.py)
+#   scripts/dev_ha_ui.sh up                  build the cards, start the broker and HA, onboard
+#                                            HA, add the MQTT and Factorio entries, the theme
+#                                            and the example dashboard, publish a scenario
+#   scripts/dev_ha_ui.sh scenario <name>     paused | running | calm (see dev_relay.py)
 #   scripts/dev_ha_ui.sh rebuild             rebuild the cards and restart HA (reload the page after)
-#   scripts/dev_ha_ui.sh down                stop HA
+#   scripts/dev_ha_ui.sh down                stop HA and the broker
 #
-# There is no MQTT broker: the config entry keeps retrying, and the entity states come from
-# dev_states.py through the REST API. The cards only read states, so the view is the real
-# one; the MQTT side is covered by pytest. UI: http://127.0.0.1:8125 (dev / factorio-dev).
+# The broker is amqtt run through uvx (pinned below). UI: http://127.0.0.1:8125 (dev / factorio-dev).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VENV="$PWD/.venv-ha/bin"
@@ -19,6 +19,10 @@ PORT=8125
 BASE="http://127.0.0.1:$PORT"
 DEV_USER=dev
 DEV_PASS=factorio-dev # a throwaway local instance
+MQTT_PORT=18830
+AMQTT="amqtt==0.12.1"
+UVX=/opt/homebrew/bin/uvx
+[ -x "$UVX" ] || UVX=$(command -v uvx || true)
 
 _wait_ha() { for _ in $(seq 1 60); do curl -sf -o /dev/null "$BASE/" 2>/dev/null && return 0; sleep 3; done; return 1; }
 _stop_ha() {
@@ -32,6 +36,22 @@ _start_ha() {
   _wait_ha || { echo "Home Assistant did not start"; tail -20 "$CFG/ha.log"; exit 1; }
 }
 _token() { "$VENV/python" scripts/ha_auth.py "$BASE" "$DEV_USER" "$DEV_PASS" | tail -1; }
+_stop_broker() { pkill -TERM -f "amqtt -c $CFG/mqtt-broker.yaml" 2>/dev/null || true; }
+_start_broker() {
+  [ -n "$UVX" ] || { echo "uvx is needed for the MQTT broker (https://docs.astral.sh/uv/)"; exit 1; }
+  cat >"$CFG/mqtt-broker.yaml" <<YAML
+listeners:
+  default:
+    type: tcp
+    bind: 127.0.0.1:$MQTT_PORT
+plugins:
+  amqtt.plugins.authentication.AnonymousAuthPlugin:
+    allow_anonymous: true
+YAML
+  nohup "$UVX" --from "$AMQTT" amqtt -c "$CFG/mqtt-broker.yaml" >"$CFG/mqtt-broker.log" 2>&1 &
+  for _ in $(seq 1 60); do nc -z 127.0.0.1 "$MQTT_PORT" 2>/dev/null && { echo "broker on 127.0.0.1:$MQTT_PORT"; return 0; }; sleep 1; done
+  echo "the MQTT broker did not start"; tail -10 "$CFG/mqtt-broker.log"; exit 1
+}
 _build() { (cd frontend && npm run build >/dev/null) && echo "cards built"; }
 
 _check_frontend() {
@@ -46,6 +66,7 @@ _check_frontend() {
 cmd_up() {
   _check_frontend
   _stop_ha
+  _stop_broker
   _build
   rm -rf "$CFG"
   mkdir -p "$CFG/custom_components" "$CFG/themes"
@@ -76,16 +97,17 @@ logger:
   logs:
     custom_components.factorio: debug
 YAML
+  _start_broker
   _start_ha
   [ -n "$(_token)" ] || { echo "onboarding failed"; tail -15 "$CFG/ha.log"; exit 1; }
   _stop_ha
-  "$VENV/python" scripts/dev_inject.py "$CFG"
+  "$VENV/python" scripts/dev_inject.py "$CFG" "$MQTT_PORT"
   _start_ha
   cmd_scenario paused
   echo "Ready: $BASE ($DEV_USER / $DEV_PASS)"
 }
 
-cmd_scenario() { "$VENV/python" scripts/dev_states.py "$BASE" "$(_token)" "${1:?scenario: paused | running | calm}"; }
+cmd_scenario() { "$VENV/python" scripts/dev_relay.py 127.0.0.1 "$MQTT_PORT" "${1:?scenario: paused | running | calm}"; }
 
 cmd_rebuild() {
   _build
@@ -98,6 +120,6 @@ case "${1:-up}" in
   up) cmd_up ;;
   scenario) cmd_scenario "${2:-}" ;;
   rebuild) cmd_rebuild "${2:-paused}" ;;
-  down) _stop_ha; echo "stopped" ;;
+  down) _stop_ha; _stop_broker; echo "stopped" ;;
   *) echo "usage: $0 {up|scenario <paused|running|calm>|rebuild [scenario]|down}"; exit 1 ;;
 esac
