@@ -82,3 +82,69 @@ def test_shipped_fonts_cover_every_face():
             for subset in ("latin", "cyrillic"):
                 assert f"{family}-{subset}-{weight}-normal.woff2" in names
     assert (fonts / "OFL-Unbounded.txt").is_file()
+
+
+# Storage-mode dashboards: the bundle is one Lovelace resource. Resources load after the
+# frontend has started, so the cards are defined in the registry the frontend uses; an extra
+# module URL loads in parallel with the frontend and sometimes defines them too early.
+
+
+async def _lovelace_resources(hass):
+    resources = hass.data["lovelace"].resources
+    await resources.async_get_info()  # loads the collection
+    return [r for r in resources.async_items() if str(r.get("url", "")).startswith(frontend.URL)]
+
+
+@pytest.fixture
+async def lovelace_hass(http_hass, tmp_path, monkeypatch):
+    assert await async_setup_component(http_hass, "lovelace", {})
+    bundle = tmp_path / "factorio-cards.js"
+    bundle.write_text("//")
+    monkeypatch.setattr(frontend, "BUNDLE", bundle)
+    return http_hass
+
+
+async def test_bundle_is_a_lovelace_resource_in_storage_mode(lovelace_hass):
+    hass = lovelace_hass
+    await frontend.async_register_frontend(hass)
+    items = await _lovelace_resources(hass)
+    assert len(items) == 1
+    assert items[0]["type"] == "module"
+    assert items[0]["url"].startswith(f"{frontend.URL}?v=")
+    assert _version_urls(hass) == []  # not loaded a second time as an extra module
+
+
+async def test_resource_of_an_older_version_is_replaced(lovelace_hass):
+    hass = lovelace_hass
+    resources = hass.data["lovelace"].resources
+    await resources.async_create_item({"res_type": "module", "url": f"{frontend.URL}?v=0.0.1"})
+    await resources.async_create_item({"res_type": "module", "url": "/hacsfiles/other/card.js"})
+    await frontend.async_register_frontend(hass)
+    ours = await _lovelace_resources(hass)
+    assert len(ours) == 1
+    assert not ours[0]["url"].endswith("v=0.0.1")
+    assert any(r["url"] == "/hacsfiles/other/card.js" for r in resources.async_items())
+
+
+async def test_resource_registration_survives_restarts(lovelace_hass):
+    hass = lovelace_hass
+    await frontend.async_register_frontend(hass)
+    hass.data.pop(frontend._DATA_KEY)  # a new Home Assistant run
+    await frontend.async_register_frontend(hass)
+    assert len(await _lovelace_resources(hass)) == 1
+
+
+async def test_yaml_mode_falls_back_to_an_extra_module(http_hass, tmp_path, monkeypatch):
+    assert await async_setup_component(http_hass, "lovelace", {"lovelace": {"resource_mode": "yaml"}})
+    bundle = tmp_path / "factorio-cards.js"
+    bundle.write_text("//")
+    monkeypatch.setattr(frontend, "BUNDLE", bundle)
+    await frontend.async_register_frontend(http_hass)
+    assert len(_version_urls(http_hass)) == 1
+
+
+async def test_removing_the_resource(lovelace_hass):
+    hass = lovelace_hass
+    await frontend.async_register_frontend(hass)
+    await frontend.async_remove_resource(hass)
+    assert await _lovelace_resources(hass) == []

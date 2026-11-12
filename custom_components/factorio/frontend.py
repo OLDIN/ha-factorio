@@ -1,9 +1,10 @@
-"""Serve the Lovelace card bundle and load it in every dashboard."""
+"""Serve the Lovelace card bundle and load it in every dashboard (as a Lovelace resource where possible)."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
@@ -39,5 +40,43 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
     else:
         _LOGGER.warning("Card fonts %s are missing; the cards fall back to system fonts", FONTS_DIR)
     await hass.http.async_register_static_paths(paths)
-    frontend.add_extra_js_url(hass, f"{URL}?v={integration.version}")
+    url = f"{URL}?v={integration.version}"
+    if not await _async_register_resource(hass, url):
+        frontend.add_extra_js_url(hass, url)
     hass.data[_DATA_KEY] = True
+
+
+def _storage_resources(hass: HomeAssistant) -> Any | None:
+    """The Lovelace resource collection when it can be edited (storage mode), else None."""
+    resources = getattr(hass.data.get("lovelace"), "resources", None)
+    return resources if hasattr(resources, "async_create_item") else None
+
+
+async def _async_register_resource(hass: HomeAssistant, url: str) -> bool:
+    """Load the bundle as one Lovelace resource (storage mode); False when that is not possible.
+
+    Resources load after the frontend has started. An extra module URL loads in parallel
+    with it and can define the cards before the frontend's custom element registry is in
+    place, so a page load now and then shows "Configuration error" for every card.
+    """
+    resources = _storage_resources(hass)
+    if resources is None:
+        return False
+    await resources.async_get_info()  # loads the collection
+    ours = [r for r in resources.async_items() if str(r.get("url", "")).split("?")[0] == URL]
+    if not any(r["url"] == url for r in ours):
+        await resources.async_create_item({"res_type": "module", "url": url})
+    for item in ours:  # older versions
+        if item["url"] != url:
+            await resources.async_delete_item(item["id"])
+    return True
+
+
+async def async_remove_resource(hass: HomeAssistant) -> None:
+    """Drop the bundle's Lovelace resource (the integration is being removed)."""
+    resources = _storage_resources(hass)
+    if resources is None:
+        return
+    await resources.async_get_info()
+    for item in [r for r in resources.async_items() if str(r.get("url", "")).split("?")[0] == URL]:
+        await resources.async_delete_item(item["id"])

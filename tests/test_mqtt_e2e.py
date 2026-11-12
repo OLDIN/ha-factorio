@@ -6,12 +6,14 @@ from pathlib import Path
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_capture_events,
     async_fire_mqtt_message,
 )
 
+from custom_components.factorio import frontend
 from custom_components.factorio.const import DOMAIN
 
 STATE = {
@@ -231,3 +233,24 @@ async def test_ha_restart_restores_data_from_retained(hass: HomeAssistant, mqtt_
     await fire(hass, "factorio/main/availability", "offline")
     assert core.players == ["alice"]
     assert core.built_planets == ["nauvis"]
+
+
+async def test_removing_the_last_server_drops_the_cards_resource(hass: HomeAssistant, mqtt_mock, tmp_path, monkeypatch):
+    bundle = tmp_path / "factorio-cards.js"
+    bundle.write_text("//")
+    monkeypatch.setattr(frontend, "BUNDLE", bundle)
+    assert await async_setup_component(hass, "lovelace", {})
+    first = await setup_entry(hass)
+    second = await setup_entry(hass, server_id="other")
+    resources = hass.data["lovelace"].resources
+
+    def ours() -> list[dict]:
+        return [r for r in resources.async_items() if r["url"].startswith(frontend.URL)]
+
+    assert len(ours()) == 1
+    await hass.config_entries.async_remove(first.entry_id)
+    await hass.async_block_till_done()
+    assert len(ours()) == 1  # another server still uses the cards
+    await hass.config_entries.async_remove(second.entry_id)
+    await hass.async_block_till_done()
+    assert ours() == []
