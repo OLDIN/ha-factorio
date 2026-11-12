@@ -182,6 +182,15 @@ def test_drills_category_gone_is_a_new_baseline():
     assert tracker.update(drills(21), 200)[0][1]["depleted"] == 21
 
 
+def test_drills_after_an_older_save_are_not_muted_by_a_future_event():
+    tracker = DrillTracker()
+    tracker.update(drills(14), 100_000)
+    assert tracker.update(drills(16), 101_000)[0][0] == "drills_depleted"
+    tracker.update(drills(10), 50_000)  # an older save: fewer depleted, the clock is back
+    events = tracker.update(drills(11), 51_000)
+    assert [e[1]["depleted"] for e in events] == [11]
+
+
 def test_unknown_resource_never_raises_event():
     tracker = DrillTracker()
     tracker.update(drills(3, "unknown"), 0)

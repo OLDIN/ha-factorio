@@ -128,8 +128,8 @@ class DrillTracker:
                 if previous is None or depleted <= previous or resource == UNKNOWN_RESOURCE:
                     continue  # first value is a baseline; drills depleted before the first scan are not news
                 last = self._event_tick.get(key)
-                if last is not None and tick - last < DRILL_EVENT_GAP_TICKS:
-                    continue
+                if last is not None and 0 <= tick - last < DRILL_EVENT_GAP_TICKS:
+                    continue  # an event "in the future" means an older save was loaded: no limit
                 self._event_tick[key] = tick
                 events.append(
                     ("drills_depleted", {"planet": planet, "resource": resource, "depleted": depleted, "total": _int(stats.get("total"))})
