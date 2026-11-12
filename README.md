@@ -32,8 +32,9 @@ by itself, so there is nothing to add under Dashboard resources. Every card take
 | Card | What it shows | Options |
 |---|---|---|
 | `custom:factorio-header-card` | title, game state, attacked planets, players online, research progress | `title` (default "Factorio") |
-| `custom:factorio-map-card` | all space bodies on a system map, attacks and defense callouts | `height` 360-1200, `label_healthy` |
+| `custom:factorio-map-card` | all space bodies on a system map: attack callouts, pulsing planets with problems (hover or tap for the list), rings of machines without problems, space platforms on their routes | `height` 360-1200, `label_healthy` |
 | `custom:factorio-planets-card` | planets that need attention first (attack, turrets, walls, evolution), then the healthy, unlocked and not yet unlocked ones | |
+| `custom:factorio-platforms-card` | space platforms: where each one stands or flies (with progress), damage and problem lines | |
 | `custom:factorio-players-card` | who is online or AFK, who left last, deaths of the last hour | |
 | `custom:factorio-timeline-card` | events of the last hour on a log scale, with filters | `window_minutes` 5-60 |
 
@@ -82,17 +83,21 @@ appearing when the planet is built or reported by the defense / evolution data:
 | `sensor.factorio_<id>_<planet>_machines_working` | working machines, %; attributes `total`, `working` |
 | `sensor.factorio_<id>_<planet>_problem_lines` | number of production lines that have been stopped for a while; attribute `lines` (recipe, machine counts, minutes stopped) |
 | `sensor.factorio_<id>_<planet>_drills_depleted` | mining drills that ran out of ore; attribute `by_resource` (`depleted`, `total`) |
+| `sensor.factorio_<id>_platforms` | number of space platforms; attribute `platforms` (`name`, `state`, `location` or `route` with `from`, `to`, `progress`, `damage`, the two worst problem `lines`) |
 
 Event types: `player_joined`, `player_left`, `player_died`, `attack_started`,
 `attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`, `line_problem`,
-`line_recovered`, `drills_depleted`.
+`line_recovered`, `drills_depleted`, `platform_departed`, `platform_arrived`,
+`platform_damaged`. A problem line on a space platform has `platform` and `platform_name`
+instead of `planet`.
 
 The planets, defense, evolution, research and AFK/death data need
 factorio-ha-bridge relay and mod 0.2 or newer; with 0.1.x only the 0.1 entities exist.
 
 Problem lines follow a rule set in the integration options (Configure): a line (planet,
-recipe) is a problem when at least `line_problem_share` % of its machines stand (no input,
-output full or no power; default 30, range 10-100) for `line_problem_minutes` minutes of
+recipe) is a problem when at least `line_problem_share` % of its machines stand (no input or
+no power, and output full too when `line_problem_output_full` is on, which it is not by default:
+saturated malls and buffers are not a problem; default 30, range 10-100) for `line_problem_minutes` minutes of
 game time (default 2, range 1-60). The same wait applies before the problem is cleared, and
 a paused game does not count. Machines, drills and the game clock the rule runs on need
 factorio-ha-bridge relay and mod 0.3 or newer.
@@ -141,9 +146,15 @@ Stage 2b (v0.4, needs bridge 0.3):
 - [x] Events `line_problem`, `line_recovered`, `drills_depleted`
 - [x] Rings of working machines on the map and in the planets card, "line stopped" callouts, a lines and drills lane in the timeline
 
+Stage 2c (v0.5, needs bridge 0.4):
+
+- [x] Space platforms: where they stand or fly (with progress), damage by asteroids, problem lines on platforms
+- [x] Events `platform_departed`, `platform_arrived`, `platform_damaged`
+- [x] Platforms card, diamonds and routes on the map, a platforms lane in the timeline
+- [x] "Output full" counts as a stopped machine only when the option says so; planet popups on the map
+
 ### Next
 
-- [ ] 2c: space platforms (where they are, in transit, waiting, losses); events `platform_damaged`, arrived / departed
 - [ ] Dedicated sensors for lines you pick in the options (e.g. iron plates on Nauvis)
 
 ### Later

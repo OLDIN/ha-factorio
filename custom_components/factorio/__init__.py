@@ -16,9 +16,11 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_LINE_MINUTES,
+    CONF_LINE_OUTPUT_FULL,
     CONF_LINE_SHARE,
     CONF_SERVER_ID,
     DEFAULT_LINE_MINUTES,
+    DEFAULT_LINE_OUTPUT_FULL,
     DEFAULT_LINE_SHARE,
     DOMAIN,
     EVENT_TYPES,
@@ -99,7 +101,8 @@ def _apply_line_rule(core: FactorioCore, entry: FactorioConfigEntry) -> None:
     """The line problem rule is kept in the options only; the defaults apply until it is set."""
     share = entry.options.get(CONF_LINE_SHARE, DEFAULT_LINE_SHARE)
     minutes = entry.options.get(CONF_LINE_MINUTES, DEFAULT_LINE_MINUTES)
-    core.set_line_rule(share / 100, int(minutes))
+    output_full = entry.options.get(CONF_LINE_OUTPUT_FULL, DEFAULT_LINE_OUTPUT_FULL)
+    core.set_line_rule(share / 100, int(minutes), bool(output_full))
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: FactorioConfigEntry) -> None:

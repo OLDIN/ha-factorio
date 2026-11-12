@@ -80,15 +80,34 @@ def test_blip_shorter_than_hold_gives_no_events():
 def test_reason_is_the_largest_bucket():
     tracker = LineTracker()
     data = planet(group(no_input=5, output_full=10, no_power=30))
-    tracker.update(data, 0, 0.3, HOLD, from_clock=True)
-    (_, payload), = tracker.update(data, HOLD, 0.3, HOLD, from_clock=True)
+    tracker.update(data, 0, 0.3, HOLD, from_clock=True, output_full=True)
+    (_, payload), = tracker.update(data, HOLD, 0.3, HOLD, from_clock=True, output_full=True)
     assert payload["reason"] == "no_power"
     assert payload["stopped"] == 45
     tracker = LineTracker()
     data = planet(group(recipe="gear", no_input=10, output_full=30, no_power=5))
-    tracker.update(data, 0, 0.3, HOLD, from_clock=True)
-    (_, payload), = tracker.update(data, HOLD, 0.3, HOLD, from_clock=True)
+    tracker.update(data, 0, 0.3, HOLD, from_clock=True, output_full=True)
+    (_, payload), = tracker.update(data, HOLD, 0.3, HOLD, from_clock=True, output_full=True)
     assert payload["reason"] == "output_full"
+
+
+def test_output_full_is_not_stopped_unless_the_rule_says_so():
+    """A saturated mall or buffer (output full) is not a problem line by default."""
+    tracker = LineTracker()
+    mall = planet(group(recipe="barrel", total=3, no_input=0, output_full=3))
+    assert tracker.update(mall, 0, 0.3, HOLD, from_clock=True) == []
+    assert tracker.update(mall, 10 * HOLD, 0.3, HOLD, from_clock=True) == []
+    assert tracker.problems("nauvis") == []
+    mixed = planet(group(recipe="gear", no_input=20, output_full=50, no_power=5))
+    tracker.update(mixed, 0, 0.3, HOLD, from_clock=True)
+    assert tracker.update(mixed, HOLD, 0.3, HOLD, from_clock=True) == []  # 25% without output full
+    tracker = LineTracker()
+    tracker.update(mixed, 0, 0.2, HOLD, from_clock=True)
+    (_, payload), = tracker.update(mixed, HOLD, 0.2, HOLD, from_clock=True)
+    assert (payload["reason"], payload["stopped"]) == ("no_input", 25)
+    tracker = LineTracker()
+    tracker.update(mall, 0, 0.3, HOLD, from_clock=True, output_full=True)
+    assert [e[0] for e in tracker.update(mall, HOLD, 0.3, HOLD, from_clock=True, output_full=True)] == ["line_problem"]
 
 
 def test_clock_ticks_alone_advance_the_hold():

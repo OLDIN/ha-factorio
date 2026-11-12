@@ -21,7 +21,7 @@ STATE = {
     "game_state_since": "2026-11-11T10:00:00+00:00", "tick": 300,
     "players_online": 1, "data": {"players": {"online": ["alice"]}},
 }
-CONFIG_ALL_ON = '{"v":1,"categories":{"players":true,"planets":true,"defense":true,"evolution":true,"research":true,"machines":true,"drills":true}}'
+CONFIG_ALL_ON = '{"v":1,"categories":{"players":true,"planets":true,"defense":true,"evolution":true,"research":true,"machines":true,"drills":true,"platforms":true},"lines":{"output_full":false}}'
 CONFIG_PLAYERS_OFF = CONFIG_ALL_ON.replace('"players":true', '"players":false')
 ENTITIES = [
     "binary_sensor.factorio_main_connection",
@@ -265,7 +265,7 @@ async def test_machines_data_and_tick_topic_raise_line_problem(hass: HomeAssista
     entry = await setup_entry(hass)
     core = entry.runtime_data.core
     await fire(hass, "factorio/main/data/machines", {"v": 1, "tick": 1000, "data": MACHINES})
-    assert core.machines("nauvis") == {"total": 200, "working": 160}
+    assert core.machines("nauvis") == {"total": 200, "working": 160, "no_input": None, "output_full": None, "no_power": None, "ok": None}
     assert bus == []
     await fire(hass, "factorio/main/tick", {"v": 1, "tick": 8200})
     assert [e.data["recipe"] for e in bus] == ["iron-plate"]

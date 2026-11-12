@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from collections.abc import Callable, Mapping
 from datetime import timedelta
@@ -11,6 +12,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CATEGORIES,
+    CONF_LINE_OUTPUT_FULL,
+    DEFAULT_LINE_OUTPUT_FULL,
     DEFAULT_LINE_MINUTES,
     DEFAULT_LINE_SHARE,
     EVENT_WINDOW_MINUTES,
@@ -23,7 +26,11 @@ from .providers.base import ProviderMessage
 
 def build_config(options: Mapping[str, Any]) -> dict[str, Any]:
     """The 'what to collect' config sent to the game; categories default to on."""
-    return {"v": PROTOCOL_VERSION, "categories": {c: bool(options.get(c, True)) for c in CATEGORIES}}
+    return {
+        "v": PROTOCOL_VERSION,
+        "categories": {c: bool(options.get(c, True)) for c in CATEGORIES},
+        "lines": {"output_full": bool(options.get(CONF_LINE_OUTPUT_FULL, DEFAULT_LINE_OUTPUT_FULL))},
+    }
 
 
 def as_dict(value: Any) -> dict:
@@ -40,6 +47,37 @@ def _is_tick(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+PLATFORM_LINES = 2  # problem lines per platform in the platforms list: what the card shows
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _route(value: Any) -> dict[str, Any] | None:
+    route = as_dict(value)
+    start, end, progress = _text(route.get("from")), _text(route.get("to")), route.get("progress")
+    if start is None or end is None:
+        return None
+    share = 0.0
+    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+        try:
+            share = float(progress)
+        except OverflowError:  # an int beyond float range
+            share = 1.0 if progress > 0 else 0.0
+    if not math.isfinite(share):
+        share = 1.0 if share > 0 else 0.0  # NaN compares False: 0
+    return {"from": start, "to": end, "progress": min(1.0, max(0.0, share))}
+
+
+def _damage(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    since = value.get("since_tick")
+    return {"active": value.get("active") is True, "since_tick": since if _is_tick(since) else None,
+            "losses": as_dict(value.get("losses"))}
+
+
 class FactorioCore:
     def __init__(self, server_id: str) -> None:
         self.server_id = server_id
@@ -52,9 +90,11 @@ class FactorioCore:
         self._listeners: list[Callable[[], None]] = []
         self._event_listeners: list[Callable[[str, dict[str, Any]], None]] = []
         self._lines = LineTracker()
+        self._platform_lines = LineTracker()  # keyed by the platform index as a string
         self._drills = DrillTracker()
         self._line_share = DEFAULT_LINE_SHARE / 100
         self._line_hold_ticks = DEFAULT_LINE_MINUTES * TICKS_PER_MINUTE
+        self._line_output_full = DEFAULT_LINE_OUTPUT_FULL
 
     # --- input --------------------------------------------------------------
 
@@ -92,10 +132,9 @@ class FactorioCore:
         if category == "machines":
             if data is None:
                 self._lines.reset()
+                self._platform_lines.reset()
             elif _is_tick(tick):
-                return self._lines.update(
-                    as_dict(data.get("by_planet")), tick, self._line_share, self._line_hold_ticks, from_clock=False
-                )
+                return self._update_lines(data, tick, from_clock=False)
         elif category == "drills":
             if data is None:
                 self._drills.reset()
@@ -109,12 +148,33 @@ class FactorioCore:
         if machines is None:
             return
         before = self._all_problems()
-        events = self._lines.update(as_dict(machines.get("by_planet")), tick, self._line_share, self._line_hold_ticks, from_clock=True)
+        events = self._update_lines(machines, tick, from_clock=True)
         self._emit(events, notify=bool(events) or self._all_problems() != before)
 
+    def _update_lines(self, machines: dict, tick: int, *, from_clock: bool) -> list[tuple[str, dict[str, Any]]]:
+        """Both line trackers: planets, and platforms (whose events name the platform, not a planet)."""
+        rule = (self._line_share, self._line_hold_ticks)
+        events = self._lines.update(
+            as_dict(machines.get("by_planet")), tick, *rule, from_clock=from_clock, output_full=self._line_output_full
+        )
+        by_platform = as_dict(machines.get("by_platform"))
+        for name, data in self._platform_lines.update(
+            by_platform, tick, *rule, from_clock=from_clock, output_full=self._line_output_full
+        ):
+            payload = dict(data)
+            key = payload.pop("planet", None)
+            if not isinstance(key, str) or not (key.isascii() and key.isdecimal()):
+                continue  # "²" is a digit to str.isdigit() but not to int()
+            platform_name = as_dict(by_platform.get(key)).get("name")
+            events.append((name, {"platform": int(key), "platform_name": platform_name if isinstance(platform_name, str) else "", **payload}))
+        return events
+
     def _all_problems(self) -> dict[str, list[dict]]:
-        planets = as_dict(as_dict(self.category("machines")).get("by_planet"))
-        return {planet: self._lines.problems(planet) for planet in planets}
+        machines = as_dict(self.category("machines"))
+        problems = {planet: self._lines.problems(planet) for planet in as_dict(machines.get("by_planet"))}
+        for key in as_dict(machines.get("by_platform")):
+            problems[f"@{key}"] = self._platform_lines.problems(key)
+        return problems
 
     def _emit(self, events: list[tuple[str, dict[str, Any]]], notify: bool = True) -> None:
         now = dt_util.utcnow().isoformat()
@@ -129,10 +189,12 @@ class FactorioCore:
         for listener in list(self._event_listeners):
             listener(name, data if isinstance(data, dict) else {})
 
-    def set_line_rule(self, share: float, minutes: int) -> None:
-        """A line is a problem when `share` (0..1) of a group stands for `minutes` of game time."""
+    def set_line_rule(self, share: float, minutes: int, output_full: bool = DEFAULT_LINE_OUTPUT_FULL) -> None:
+        """A line is a problem when `share` (0..1) of a group stands for `minutes` of game time;
+        `output_full`: an "output full" machine counts as standing."""
         self._line_share = share
         self._line_hold_ticks = minutes * TICKS_PER_MINUTE
+        self._line_output_full = output_full
 
     # --- subscriptions --------------------------------------------------------
 
@@ -228,7 +290,13 @@ class FactorioCore:
         entry = self._planet_entry("machines", planet)
         if entry is None:
             return None
-        return {"total": entry.get("total"), "working": entry.get("working")}
+        total = entry.get("total")
+        counts = {key: entry.get(key) for key in ("no_input", "output_full", "no_power")}
+        ok = None  # machines without a problem under the line rule; needs the mod's planet counters (0.3.1+)
+        if _is_tick(total) and all(_is_tick(v) for v in counts.values()):
+            standing = counts["no_input"] + counts["no_power"] + (counts["output_full"] if self._line_output_full else 0)
+            ok = max(0, total - standing)
+        return {"total": total, "working": entry.get("working"), **counts, "ok": ok}
 
     def problem_lines(self, planet: str) -> list[dict] | None:
         if self._planet_entry("machines", planet) is None:
@@ -240,6 +308,33 @@ class FactorioCore:
         if entry is None:
             return None
         return {"total": entry.get("total"), "working": entry.get("working"), "by_resource": as_dict(entry.get("by_resource"))}
+
+    def platforms(self) -> list[dict] | None:
+        """Space platforms for the cards: where each is or flies, damage, and its worst problem lines."""
+        data = self.category("platforms")
+        if data is None:
+            return None
+        out = []
+        for item in as_list(data.get("list")):
+            if not isinstance(item, dict) or not _is_tick(item.get("index")):
+                continue
+            index = item["index"]
+            lines = [
+                {k: v for k, v in line.items() if k != "positions"} for line in self._platform_lines.problems(str(index))
+            ]
+            out.append(
+                {
+                    "index": index,
+                    "name": _text(item.get("name")) or "",
+                    "state": _text(item.get("state")),
+                    "location": _text(item.get("location")),
+                    "route": _route(item.get("route")),
+                    "damage": _damage(item.get("damage")),
+                    "lines": lines[:PLATFORM_LINES],
+                    "lines_more": max(0, len(lines) - PLATFORM_LINES),
+                }
+            )
+        return out
 
     def _planet_entry(self, category: str, planet: str) -> dict | None:
         entry = as_dict(as_dict(self.category(category)).get("by_planet")).get(planet)

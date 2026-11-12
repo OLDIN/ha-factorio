@@ -12,6 +12,16 @@ const REASONS = new Set(["no_input", "output_full", "no_power"]);
 export interface Machines {
   total: number;
   working: number;
+  /** Machines without a problem under the integration's line rule; null with an older mod. */
+  ok: number | null;
+}
+
+/** Rows of problems a planet shows before "N more". */
+export const TOP_ROWS = 5;
+
+/** Percent for the ring: machines without problems, or working ones when the mod is older. */
+export function machinesShare(m: Machines): number {
+  return ((m.ok ?? m.working) / m.total) * 100;
 }
 
 export interface ProblemLine {
@@ -49,7 +59,8 @@ export function readMachines(states: States, sid: string, planet: string): Machi
   if (!state) return null;
   const attrs = asDict(state.attributes);
   const total = whole(attrs.total);
-  return total > 0 ? { total, working: Math.min(total, whole(attrs.working)) } : null;
+  const ok = typeof attrs.ok === "number" && Number.isFinite(attrs.ok) ? Math.min(total, whole(attrs.ok)) : null;
+  return total > 0 ? { total, working: Math.min(total, whole(attrs.working)), ok } : null;
 }
 
 /** Lines in trouble, worst first as the sensor sorts them; null without data. */
@@ -79,6 +90,7 @@ export function readDrills(states: States, sid: string, planet: string): Deplete
   if (!state) return null;
   const out: DepletedDrills[] = [];
   for (const [resource, raw] of Object.entries(asDict(asDict(state.attributes).by_resource))) {
+    if (resource === "unknown") continue; // depleted before the first scan: old news, the sensor keeps it
     const stats = asDict(raw);
     const depleted = whole(stats.depleted);
     if (depleted > 0) out.push({ resource, depleted, total: Math.max(depleted, whole(stats.total)) });

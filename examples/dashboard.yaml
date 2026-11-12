@@ -30,10 +30,12 @@ views:
           - type: custom:factorio-planets-card
             server_id: main
 
-      # Players: the fourth column
+      # Platforms and players: the fourth column
       - type: grid
         column_span: 1
         cards:
+          - type: custom:factorio-platforms-card
+            server_id: main
           - type: custom:factorio-players-card
             server_id: main
 

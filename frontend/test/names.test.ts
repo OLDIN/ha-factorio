@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bodyName, bodyNameAccusative, researchName } from "../src/shared/names";
+import { bodyName, bodyNameAccusative, bodyNameNear, researchName } from "../src/shared/names";
 
 describe("bodyName", () => {
   it("names the vanilla bodies in Ukrainian, as the mockup does", () => {
@@ -18,6 +18,15 @@ describe("bodyName", () => {
     expect(bodyNameAccusative("nauvis", "uk")).toBe("Наувіс");
     expect(bodyNameAccusative("gleba", "en")).toBe("Gleba");
     expect(bodyNameAccusative("corrundum", "uk")).toBe("Corrundum");
+  });
+
+  it("has the genitive for «біля …»: vanilla bodies decline, the rest stay", () => {
+    expect(bodyNameNear("gleba", "uk")).toBe("Глеби");
+    expect(bodyNameNear("nauvis", "uk")).toBe("Наувісу");
+    expect(bodyNameNear("aquilo", "uk")).toBe("Аквіло");
+    expect(bodyNameNear("solar-system-edge", "uk")).toBe("краю сонячної системи");
+    expect(bodyNameNear("corrundum", "uk")).toBe("Corrundum");
+    expect(bodyNameNear("gleba", "en")).toBe("Gleba");
   });
 
   it("names planet discoveries by their planet", () => {

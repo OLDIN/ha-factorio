@@ -36,7 +36,10 @@ export { parseTime };
 const pillWidth = (text: string): number => Math.ceil(text.length * 6.9 + 34);
 
 export function eventText(lang: string, event: string, data: Record<string, unknown>): string | null {
-  const planet = bodyName(str(data.planet), lang);
+  // A problem line on a space platform names the platform instead of a planet.
+  const platform = str(data.platform_name) || str(data.name);
+  const quoted = t(lang, "pf_name", { name: platform });
+  const planet = str(data.platform_name) ? quoted : bodyName(str(data.planet), lang);
   const player = str(data.player);
   switch (event) {
     case "attack_started":
@@ -53,6 +56,12 @@ export function eventText(lang: string, event: string, data: Record<string, unkn
       return t(lang, "tl_line_recovered", { planet, recipe: prettyName(str(data.recipe)) });
     case "drills_depleted":
       return t(lang, "tl_drills_depleted", { planet, resource: prettyName(str(data.resource)) });
+    case "platform_departed":
+      return t(lang, "tl_platform_departed", { name: quoted, from: bodyName(str(data.from), lang), to: bodyName(str(data.to), lang) });
+    case "platform_arrived":
+      return t(lang, "tl_platform_arrived", { name: quoted, location: bodyName(str(data.location), lang) });
+    case "platform_damaged":
+      return t(lang, "tl_platform_damaged", { name: quoted });
     case "research_finished": {
       const name = researchName(str(data.name), lang);
       const level = Number(data.level);
@@ -77,6 +86,9 @@ const TONES: Record<string, { tone: Pill["tone"]; resolved: boolean }> = {
   line_problem: { tone: "amber", resolved: false },
   line_recovered: { tone: "green", resolved: true },
   drills_depleted: { tone: "amber", resolved: false },
+  platform_departed: { tone: "cyan", resolved: false },
+  platform_arrived: { tone: "cyan", resolved: true },
+  platform_damaged: { tone: "amber", resolved: false },
 };
 
 /** Events of the last `windowMin` minutes as pills (unknown events and bad timestamps are skipped). */
