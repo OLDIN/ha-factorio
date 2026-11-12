@@ -1,8 +1,8 @@
 /** Pure helpers of the timeline card: the logarithmic time axis, lanes and pill stacking. */
 
-export type Lane = "attacks" | "defense" | "lines" | "players_science";
+export type Lane = "attacks" | "defense" | "lines" | "platforms" | "players_science";
 
-export const LANES: readonly Lane[] = ["attacks", "defense", "lines", "players_science"];
+export const LANES: readonly Lane[] = ["attacks", "defense", "lines", "platforms", "players_science"];
 
 /**
  * Horizontal position (0 = oldest edge of the window, 1 = now) of an event that happened
@@ -17,6 +17,7 @@ export function laneOf(event: string): Lane | null {
   if (event.startsWith("attack_")) return "attacks";
   if (event.startsWith("turrets_")) return "defense";
   if (event.startsWith("line_") || event === "drills_depleted") return "lines";
+  if (event.startsWith("platform_")) return "platforms";
   if (event.startsWith("player_") || event === "research_finished") return "players_science";
   return null;
 }

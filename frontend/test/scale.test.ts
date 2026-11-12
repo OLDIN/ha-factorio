@@ -39,8 +39,9 @@ describe("laneOf", () => {
 });
 
 describe("LANES", () => {
-  it("orders attacks, defense, lines and drills, players and science", () => {
-    expect(LANES).toEqual(["attacks", "defense", "lines", "players_science"]);
+  it("orders attacks, defense, lines and drills, platforms, players and science", () => {
+    expect(LANES).toEqual(["attacks", "defense", "lines", "platforms", "players_science"]);
+    for (const e of ["platform_departed", "platform_arrived", "platform_damaged"]) expect(laneOf(e)).toBe("platforms");
   });
 });
 

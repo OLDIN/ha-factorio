@@ -62,12 +62,19 @@ describe("factorio-timeline-card", () => {
     expect(root.querySelector('[data-lane="attacks"] .pill')?.textContent).toContain("Nauvis");
     expect(root.querySelector('[data-lane="players_science"] .pill')?.textContent).toContain("alice joined");
     const chips = [...root.querySelectorAll<HTMLButtonElement>("button.chip")];
-    expect(chips).toHaveLength(5);
+    expect(chips).toHaveLength(6);
     expect(chips[0].getAttribute("aria-pressed")).toBe("true");
     chips[1].click();
     await el.updateComplete;
     expect(root.querySelectorAll(".lane")).toHaveLength(1);
     expect(root.querySelector("button.chip[aria-pressed=true]")).toBe(chips[1]);
+    el.remove();
+  });
+
+  it("has a filter button for the platforms lane after lines and drills", async () => {
+    const el = await mount(hass([], "uk"));
+    const labels = [...el.shadowRoot!.querySelectorAll<HTMLButtonElement>("button.chip")].map((b) => b.textContent?.trim());
+    expect(labels.indexOf("Платформи")).toBe(labels.indexOf("Лінії й бури") + 1);
     el.remove();
   });
 
@@ -194,5 +201,30 @@ describe("timer lifecycle and shouldUpdate", () => {
     expect(changed({ ...old, states: other })).toBe(false);
     expect(changed({ ...old, states: { ...old.states, "sensor.factorio_main_recent_events": { state: "2", attributes: { events: [] } } } })).toBe(true);
     expect(changed({ ...old, language: "uk", locale: { language: "uk" } })).toBe(true);
+  });
+});
+
+describe("platforms lane", () => {
+  const PLATFORM_EVENTS = [
+    { event: "platform_departed", time: ago(6), data: { index: 3, name: "Hauler 2", from: "fulgora", to: "gleba" } },
+    { event: "platform_arrived", time: ago(5), data: { index: 3, name: "Hauler 2", location: "gleba" } },
+    { event: "platform_damaged", time: ago(4), data: { index: 3, name: "Hauler 2", losses: { "transport-belt": 2 }, duration_s: 12 } },
+    { event: "line_problem", time: ago(3), data: { platform: 3, platform_name: "Hauler 2", recipe: "thruster-fuel", reason: "no_input", stopped: 6, total: 10 } },
+  ];
+  it("puts travel and damage on the platforms lane and a platform's line on the lines lane, in uk", () => {
+    expect(buildPills(PLATFORM_EVENTS, "uk", 60, NOW).map((p) => [p.lane, p.text, p.tone, p.resolved])).toEqual([
+      ["platforms", "«Hauler 2»: Фульгора → Глеба", "cyan", false],
+      ["platforms", "«Hauler 2»: Глеба", "cyan", true],
+      ["platforms", "«Hauler 2»: пошкоджена", "amber", false],
+      ["lines", "«Hauler 2»: Thruster fuel", "amber", false],
+    ]);
+  });
+  it("translates to en", () => {
+    expect(buildPills(PLATFORM_EVENTS, "en", 60, NOW).map((p) => p.text)).toEqual([
+      "\u201cHauler 2\u201d: Fulgora \u2192 Gleba",
+      "\u201cHauler 2\u201d: Gleba",
+      "\u201cHauler 2\u201d: damaged",
+      "\u201cHauler 2\u201d: Thruster fuel",
+    ]);
   });
 });
