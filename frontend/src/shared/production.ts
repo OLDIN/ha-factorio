@@ -1,5 +1,7 @@
 /** Readers of the per-planet production sensors (machines, problem lines, depleted drills). Pure. */
 import { entityId } from "./entities";
+import { t, tn } from "./i18n";
+import { prettyName } from "./names";
 import { asDict, asList, type HassState } from "./types";
 
 type States = Record<string, HassState | undefined>;
@@ -79,4 +81,16 @@ export function readDrills(states: States, sid: string, planet: string): Deplete
     if (depleted > 0) out.push({ resource, depleted, total: Math.max(depleted, whole(stats.total)) });
   }
   return out;
+}
+
+/** "Scrap recycling: 31 of 48 stopped, output full, 11 min" — one problem line as a row of text. */
+export function lineText(line: ProblemLine, lang: string): string {
+  const reason = line.reason === "" ? "" : `, ${t(lang, `reason_${line.reason}`)}`;
+  const minutes = line.minutes < 1 ? "<1" : line.minutes;
+  return t(lang, "pl_line", { recipe: prettyName(line.recipe), stopped: line.stopped, total: line.total, reason, minutes });
+}
+
+/** "Iron ore: 3 of 12 drills depleted" — one resource with depleted drills as a row of text. */
+export function drillText(drill: DepletedDrills, lang: string): string {
+  return tn(lang, "pl_drills", drill.total, { resource: prettyName(drill.resource), depleted: drill.depleted, total: drill.total });
 }

@@ -5,6 +5,7 @@ import { bodyName } from "../shared/names";
 import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass, type HassState } from "../shared/types";
+import { readMachines } from "../shared/production";
 import { HAZARD_STRIP, collectAlerts, placeCallouts, type Callout } from "./callouts";
 import { mapHeight, type MapCardConfig } from "./config";
 import "./editor";
@@ -52,6 +53,8 @@ interface View {
   callouts: Callout[];
   attacked: Set<string>;
   research: Map<string, number>;
+  /** Share (0–100) of working machines per built planet that reports machines. */
+  machines: ReadonlyMap<string, number>;
   sublabels: ReadonlyMap<string, string>;
   hidden: Set<string>;
   title: string;
@@ -168,6 +171,18 @@ export class FactorioMapCard extends LitElement {
 
     const sublabels = new Map<string, string>();
     for (const [name, progress] of research) sublabels.set(name, t(lang, "research_progress", { progress: Math.round(progress) }));
+    // Working machines of built planets; research first when a body has both.
+    const machines = new Map<string, number>();
+    for (const b of bodies) {
+      if (b.state !== "built") continue;
+      const m = readMachines(hass.states, sid, b.name);
+      if (!m) continue;
+      const share = (m.working / m.total) * 100;
+      machines.set(b.name, share);
+      const label = t(lang, "machines_share", { percent: Math.round(share) });
+      const known = sublabels.get(b.name);
+      sublabels.set(b.name, known === undefined ? label : `${known} · ${label}`);
+    }
     const hidden = new Set<string>();
     if (this._config?.label_healthy === false)
       for (const b of bodies) if (!alerting.has(b.name) && !research.has(b.name)) hidden.add(b.name);
@@ -179,7 +194,7 @@ export class FactorioMapCard extends LitElement {
     const breakdown = t(lang, "map_breakdown", { built, unlocked, locked: bodies.length - built - unlocked });
     const header: Rect = { x0: 0, y0: 0, x1: 24 + Math.max(title.length * 13.5, breakdown.length * 6.6) + 16, y1: 80 };
 
-    const items = ["built", "unlocked", "locked", "research", "attack"].map((key) => ({ key, text: t(lang, `legend_${key}`) }));
+    const items = ["built", "unlocked", "locked", "research", "attack", "machines"].map((key) => ({ key, text: t(lang, `legend_${key}`) }));
     const { x: legendX, y: legendY, rect: legendRect } = legendLayout({ width, height }, items.map((i) => i.text));
     const legend = { x: legendX, y: legendY, items };
 
@@ -213,6 +228,7 @@ export class FactorioMapCard extends LitElement {
       callouts,
       attacked,
       research,
+      machines,
       sublabels,
       hidden,
       title,
@@ -291,18 +307,23 @@ export class FactorioMapCard extends LitElement {
     const moon = p.parent !== null;
     const ring = p.r + (moon ? 4 : 5);
     const research = v.research.get(p.name);
+    const share = v.machines.get(p.name);
     const attacked = v.attacked.has(p.name);
     const parts: SVGTemplateResult[] = [];
-    if (body?.state === "built" && !moon && research === undefined && !attacked)
+    const c = 2 * Math.PI * ring;
+    if (share !== undefined && research === undefined)
+      parts.push(svg`<circle class="ring" cx=${p.cx} cy=${p.cy} r=${ring}></circle>
+        <circle class="machines" cx=${p.cx} cy=${p.cy} r=${ring} stroke-dasharray="${(c * share) / 100} ${c}"
+          transform="rotate(-90 ${p.cx} ${p.cy})"></circle>`);
+    else if (body?.state === "built" && !moon && research === undefined && !attacked)
       parts.push(svg`<circle class="ring" cx=${p.cx} cy=${p.cy} r=${ring}></circle>`);
     if (research !== undefined) {
-      const c = 2 * Math.PI * ring;
       parts.push(svg`<circle class="ring" cx=${p.cx} cy=${p.cy} r=${ring}></circle>
         <circle class="research" cx=${p.cx} cy=${p.cy} r=${ring} stroke-dasharray="${(c * research) / 100} ${c}"
           transform="rotate(-90 ${p.cx} ${p.cy})"></circle>`);
     }
     if (attacked)
-      parts.push(svg`<circle class="hazard" cx=${p.cx} cy=${p.cy} r=${research === undefined ? ring : ring + 5}
+      parts.push(svg`<circle class="hazard" cx=${p.cx} cy=${p.cy} r=${research === undefined && share === undefined ? ring : ring + 5}
         stroke="url(#fha-hz)" stroke-width=${moon ? 3 : 4}></circle>`);
     if (body?.state === "built") {
       parts.push(svg`<circle class="body built" cx=${p.cx} cy=${p.cy} r=${p.r} fill=${color}></circle>`);
@@ -370,6 +391,9 @@ export class FactorioMapCard extends LitElement {
         case "research":
           return svg`<circle class="ring" cx=${cx} cy=${cy} r="7" stroke-width="2.5"></circle>
             <path class="research" d="M${cx} ${cy - 7} A7 7 0 0 1 ${cx + 7} ${cy}" stroke-width="2.5"></path>`;
+        case "machines":
+          return svg`<circle class="ring" cx=${cx} cy=${cy} r="7" stroke-width="2.5"></circle>
+            <path class="machines" d="M${cx} ${cy - 7} A7 7 0 1 1 ${cx - 6.06} ${cy + 3.5}" stroke-width="2.5"></path>`;
         default:
           return svg`<rect x=${cx - 8} y=${cy - 3.5} width="16" height="7" rx="1" fill="url(#fha-hz-sm)"></rect>`;
       }
@@ -449,6 +473,11 @@ export class FactorioMapCard extends LitElement {
       .research {
         fill: none;
         stroke: var(--fha-cyan);
+        stroke-width: 3;
+      }
+      .machines {
+        fill: none;
+        stroke: var(--fha-green);
         stroke-width: 3;
       }
       .hazard {

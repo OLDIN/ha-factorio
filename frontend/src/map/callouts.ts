@@ -5,6 +5,7 @@
 import { entityId } from "../shared/entities";
 import { t } from "../shared/i18n";
 import { bodyName } from "../shared/names";
+import { drillText, lineText, readDrills, readLines } from "../shared/production";
 import { asDict, asList, type HassState } from "../shared/types";
 import { labelRect, prettyName, type Body, type Placed, type Rect } from "./layout";
 
@@ -130,6 +131,9 @@ export function collectAlerts(
     const damaged = count(states[entityId(serverId, "sensor", "walls_damaged", body.name)]?.state);
     if (damaged > 0) problems.push(t(lang, "walls_damaged", { count: damaged }));
 
+    const problemLines = readLines(states, serverId, body.name) ?? [];
+    const production = [...problemLines.map((l) => lineText(l, lang)), ...(readDrills(states, serverId, body.name) ?? []).map((d) => drillText(d, lang))];
+
     const attack = states[entityId(serverId, "binary_sensor", "under_attack", body.name)];
     if (attack?.state === "on") {
       const attrs = asDict(attack.attributes);
@@ -149,14 +153,20 @@ export function collectAlerts(
       const pos = asList(attrs.position);
       if (pos.length >= 2 && isNum(pos[0]) && isNum(pos[1]))
         lines.push({ text: t(lang, "attack_near", { position: `[${Math.round(pos[0])}, ${Math.round(pos[1])}]` }), tone: "muted" });
-      for (const text of problems) lines.push({ text, tone: "amber" });
+      for (const text of [...problems, ...production]) lines.push({ text, tone: "amber" });
       out.push({ body: body.name, tone: "attack", title, lines });
-    } else if (problems.length > 0) {
+    } else if (problems.length > 0 || problemLines.length > 0) {
+      // Depleted drills alone make no callout (the planets card has them); with a problem line they ride along.
       out.push({
         body: body.name,
         tone: "warning",
-        title: t(lang, "defense_title", { planet }),
-        lines: problems.map((text) => ({ text, tone: "text" as const })),
+        title:
+          problems.length > 0
+            ? t(lang, "defense_title", { planet })
+            : problemLines.length === 1
+              ? t(lang, "line_stopped_title", { planet })
+              : t(lang, "lines_stopped_title", { planet, count: problemLines.length }),
+        lines: [...problems, ...production].map((text) => ({ text, tone: "text" as const })),
       });
     }
   }

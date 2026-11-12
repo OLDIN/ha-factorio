@@ -285,6 +285,76 @@ describe("collectAlerts", () => {
     expect(alerts[0].title).toBe("Фульгора: оборона");
   });
 
+  const lineSensor = (lines: unknown[]): HassState => ({ state: String(lines.length), attributes: { lines } });
+  const scrap = { recipe: "scrap-recycling", reason: "output_full", stopped: 31, total: 48, minutes: 11 };
+  const smelt = { recipe: "iron-plate", reason: "no_input", stopped: 20, total: 60, minutes: 3 };
+
+  it("builds a line-stopped callout for a planet with one problem line", () => {
+    const alerts = collectAlerts(states({ "sensor.factorio_main_vulcanus_problem_lines": lineSensor([scrap]) }), "main", BODIES, "uk", NOW);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].body).toBe("vulcanus");
+    expect(alerts[0].tone).toBe("warning");
+    expect(alerts[0].title).toBe("Вулканус: лінія стоїть");
+    expect(alerts[0].lines).toEqual([{ text: "Scrap recycling: стоїть 31 з 48, вихід забитий, 11 хв", tone: "text" }]);
+  });
+
+  it("counts the lines in the title and adds depleted drills of the same planet", () => {
+    const alerts = collectAlerts(
+      states({
+        "sensor.factorio_main_vulcanus_problem_lines": lineSensor([scrap, smelt]),
+        "sensor.factorio_main_vulcanus_drills_depleted": { state: "3", attributes: { by_resource: { "iron-ore": { total: 12, depleted: 3 } } } },
+      }),
+      "main",
+      BODIES,
+      "en",
+      NOW,
+    );
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].title).toBe("Vulcanus: lines stopped (2)");
+    expect(alerts[0].lines.map((l) => l.text)).toEqual([
+      "Scrap recycling: 31 of 48 stopped, output full, 11 min",
+      "Iron plate: 20 of 60 stopped, no input, 3 min",
+      "Iron ore: 3 of 12 drills depleted",
+    ]);
+    expect(collectAlerts(states({ "sensor.factorio_main_vulcanus_problem_lines": lineSensor([scrap]) }), "main", BODIES, "en", NOW)[0].title).toBe(
+      "Vulcanus: line stopped",
+    );
+  });
+
+  it("keeps the attack and defense headings and appends the production rows", () => {
+    const alerts = collectAlerts(
+      states({
+        "binary_sensor.factorio_main_nauvis_under_attack": attack,
+        "sensor.factorio_main_nauvis_problem_lines": lineSensor([scrap]),
+        "sensor.factorio_main_fulgora_turrets_no_ammo": { state: "6", attributes: { total: 40, no_power: 0, positions: [] } },
+        "sensor.factorio_main_fulgora_problem_lines": lineSensor([scrap]),
+      }),
+      "main",
+      BODIES,
+      "en",
+      NOW,
+    );
+    const nauvis = alerts.find((a) => a.body === "nauvis")!;
+    expect(nauvis.tone).toBe("attack");
+    expect(nauvis.title).toBe("Attack on Nauvis: 2 min");
+    expect(nauvis.lines.at(-1)).toEqual({ text: "Scrap recycling: 31 of 48 stopped, output full, 11 min", tone: "amber" });
+    const fulgora = alerts.find((a) => a.body === "fulgora")!;
+    expect(fulgora.tone).toBe("warning");
+    expect(fulgora.title).toBe("Fulgora: defense");
+    expect(fulgora.lines.map((l) => l.text)).toEqual(["6 turrets without ammo", "Scrap recycling: 31 of 48 stopped, output full, 11 min"]);
+  });
+
+  it("stays quiet for depleted drills alone", () => {
+    const alerts = collectAlerts(
+      states({ "sensor.factorio_main_vulcanus_drills_depleted": { state: "3", attributes: { by_resource: { "iron-ore": { total: 12, depleted: 3 } } } } }),
+      "main",
+      BODIES,
+      "en",
+      NOW,
+    );
+    expect(alerts).toEqual([]);
+  });
+
   it("shows nothing when the entities are missing or unknown", () => {
     expect(collectAlerts({}, "main", BODIES, "en", NOW)).toEqual([]);
     expect(
@@ -329,5 +399,33 @@ describe("collectAlerts", () => {
     );
     expect(alerts).toHaveLength(1);
     expect(alerts[0].title).toContain("Nauvis");
+  });
+});
+
+describe("placeCallouts with line callouts", () => {
+  it("places line-stopped callouts with several rows without overlaps and with leads on their bodies", () => {
+    const rows = [
+      { text: "Scrap recycling: 31 of 48 stopped, output full, 11 min", tone: "text" as const },
+      { text: "Iron plate: 20 of 60 stopped, no input, 3 min", tone: "text" as const },
+      { text: "Iron ore: 3 of 12 drills depleted", tone: "text" as const },
+    ];
+    const items: CalloutInput[] = ["vulcanus", "gleba", "fulgora", "aquilo"].map((body) => ({
+      body,
+      tone: "warning",
+      title: `${body}: lines stopped (2)`,
+      lines: rows,
+    }));
+    const placed = layoutBodies(BODIES, SIZE);
+    const out = placeCallouts(items, placed, SIZE);
+    expect(out).toHaveLength(4);
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) expect(overlap(out[i], out[j])).toBe(false);
+      expect(out[i].x).toBeGreaterThanOrEqual(0);
+      expect(out[i].x + out[i].width).toBeLessThanOrEqual(SIZE.width);
+      expect(out[i].y + out[i].height).toBeLessThanOrEqual(SIZE.height);
+      for (const p of placed) expect(circleHitsBox(p, out[i])).toBe(false);
+      const p = placed.find((q) => q.name === out[i].body)!;
+      expect(Math.hypot(out[i].line.x1 - p.cx, out[i].line.y1 - p.cy)).toBeLessThanOrEqual(p.r + 40);
+    }
   });
 });
