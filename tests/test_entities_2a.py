@@ -178,10 +178,49 @@ async def test_planet_entities_from_data_known_before_platforms(hass: HomeAssist
             self.handle_message(ProviderMessage("data", {"category": "planets", "data": {"bodies": [body("nauvis")]}}))
             self.handle_message(ProviderMessage("data", {"category": "evolution", "data": {"by_planet": {"nauvis": 0.3}}}))
 
+    entry = add_entry(hass)
+    # A device left from before a restart, for a body the data already says is gone.
+    dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, "main:old-moon")},
+                                           name="Factorio · Old moon")
     with patch("custom_components.factorio.FactorioCore", PrefilledCore):
-        await setup(hass)
+        await setup(hass, entry)
     for entity_id in planet_ids("nauvis") + ["sensor.factorio_main_nauvis_evolution"]:
         assert hass.states.get(entity_id) is not None, entity_id
+    for entity_id in planet_ids("old_moon"):
+        assert hass.states.get(entity_id) is None, entity_id  # gone: no entities for it
+    await push(hass, "evolution", {"by_planet": {"nauvis": 0.31}})
+    assert device(hass, entry, "main:old-moon") is None
+
+
+@pytest.mark.parametrize("planets", [None, {"bodies": [body("nauvis", state="unlocked")]}],
+                         ids=["planets_data_absent", "body_not_built"])
+async def test_known_planet_entities_available_after_restart(hass: HomeAssistant, mqtt_mock, planets):
+    """HA writes a restored 'unavailable' state for every registered entity at start; ours must replace it."""
+    entry = add_entry(hass)
+    devices = dr.async_get(hass)
+    entities = er.async_get(hass)
+    nauvis = devices.async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, "main:nauvis")},
+                                         name="Factorio · Nauvis")
+    known = planet_ids("nauvis") + ["sensor.factorio_main_nauvis_evolution"]
+    for entity_id in known:
+        platform, object_id = entity_id.split(".")
+        unique_id = "main_nauvis_" + object_id.removeprefix("factorio_main_nauvis_")
+        entities.async_get_or_create(platform, DOMAIN, unique_id, config_entry=entry, device_id=nauvis.id,
+                                     suggested_object_id=object_id)
+        entities.async_get(entity_id).write_unavailable_state(hass)
+    assert all(hass.states.get(entity_id).state == STATE_UNAVAILABLE for entity_id in known)
+
+    await setup(hass, entry)
+    if planets is not None:
+        await push(hass, "planets", planets)
+    await push(hass, "defense", DEFENSE)  # defense keeps flowing without the planets category
+    for entity_id in known:
+        state = hass.states.get(entity_id)
+        assert state is not None and state.state != STATE_UNAVAILABLE, entity_id
+    assert hass.states.get("sensor.factorio_main_nauvis_turrets_no_ammo").state == "6"
+    assert hass.states.get("binary_sensor.factorio_main_nauvis_under_attack").state == "on"
+    assert hass.states.get("sensor.factorio_main_nauvis_evolution").state == "unknown"  # no value now
+    assert device(hass, entry, "main:nauvis") is not None
 
 
 async def test_planet_device_removed_when_body_gone(hass: HomeAssistant, mqtt_mock, caplog):
@@ -196,6 +235,9 @@ async def test_planet_device_removed_when_body_gone(hass: HomeAssistant, mqtt_mo
 
     await push(hass, "planets", {"bodies": [body("nauvis"), body("planet-x"), body("gleba", state="unlocked")]})
     assert registry.async_get(orphan.id) is None
+    assert device(hass, entry, "main:old-moon") is None  # not re-created by a late entity add
+    for entity_id in planet_ids("old_moon"):
+        assert hass.states.get(entity_id) is None, entity_id
     assert device(hass, entry, "main:planet-x") is not None
 
     # No longer built, but still a body: the device stays.

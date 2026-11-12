@@ -31,14 +31,17 @@ async def async_setup_entry(
         ]
     )
     core = entry.runtime_data.core
+    planets = entry.runtime_data.planets
 
     def planet_sensors(planet: str) -> list[Entity]:
         sensors: list[Entity] = [TurretsNoAmmoSensor(entry, planet), WallsDamagedSensor(entry, planet)]
-        if core.evolution(planet) is not None:  # only planets with enemies have a value
-            sensors.append(EvolutionSensor(entry, planet))
+        evolution = EvolutionSensor(entry, planet)
+        # Only planets with enemies have a value; a sensor registered before (restart) stays.
+        if core.evolution(planet) is not None or planets.known(Platform.SENSOR, evolution.unique_id):
+            sensors.append(evolution)
         return sensors
 
-    entry.runtime_data.planets.register(Platform.SENSOR, planet_sensors, async_add_entities)
+    planets.register(Platform.SENSOR, planet_sensors, async_add_entities)
 
 
 class GameStateSensor(FactorioEntity, SensorEntity):
