@@ -4,6 +4,7 @@
  */
 import { entityId } from "../shared/entities";
 import { t } from "../shared/i18n";
+import { bodyName } from "../shared/names";
 import { asDict, asList, type HassState } from "../shared/types";
 import { labelRect, prettyName, type Body, type Placed, type Rect } from "./layout";
 
@@ -55,7 +56,11 @@ const TITLE_CHAR = 10.2; // Unbounded is wide
 const LINE_CHAR = 7;
 const PAD_X = 14;
 const MIN_WIDTH = 170;
-const MAX_WIDTH = 420;
+const MAX_WIDTH = 360;
+/** A long line wraps into at most this many lines; the rest is cut with "…". */
+const MAX_WRAP = 3;
+/** Gap between a body's own label and the lead that starts past it. */
+const LEAD_GAP = 3;
 const EDGE = 14; // distance of the first row from the card edge
 const ROW_GAP = 12;
 const BOX_GAP = ROW_GAP;
@@ -63,22 +68,35 @@ const BODY_CLEARANCE = 4;
 const REACH = 300;
 const LABEL_TOLERANCE = 2;
 
+/** Game states in which nothing ticks, with the i18n key that says so. */
+const FROZEN: Record<string, string | undefined> = {
+  paused: "game_paused",
+  stopped: "game_stopped",
+  no_connection: "game_no_connection",
+};
+
+/** The i18n key of the game state when the game does not tick (paused, stopped, offline), else undefined. */
+export function frozenKey(states: Record<string, HassState | undefined>, serverId: string): string | undefined {
+  return FROZEN[states[entityId(serverId, "sensor", "game_state")]?.state ?? ""];
+}
+
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 /** A non-negative whole count from a state or attribute; anything else (unknown, unavailable) is 0. */
-function count(value: unknown): number {
+export function count(value: unknown): number {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
 }
 
 /** "Stone wall ×12, Gun turret ×4, +3 more": the biggest losses first, plural-free in every language. */
-function formatLosses(losses: unknown, lang: string): string {
+export function formatLosses(losses: unknown, lang: string): string {
   const entries = Object.entries(asDict(losses))
     .map(([name, n]) => [name, count(n)] as const)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   if (entries.length === 0) return "";
-  const shown = entries.slice(0, 3).map(([name, n]) => `${prettyName(name)} ×${n}`);
+  // A no-break space keeps the count with its item when the line wraps.
+  const shown = entries.slice(0, 3).map(([name, n]) => `${prettyName(name)}\u00a0×${n}`);
   const rest = entries.slice(3).reduce((sum, [, n]) => sum + n, 0);
   if (rest > 0) shown.push(t(lang, "attack_more", { count: rest }));
   return shown.join(", ");
@@ -98,10 +116,11 @@ export function collectAlerts(
 ): CalloutInput[] {
   const out: CalloutInput[] = [];
   const seen = new Set<string>();
+  const frozen = frozenKey(states, serverId);
   for (const body of bodies) {
     if (!body || typeof body.name !== "string" || seen.has(body.name)) continue;
     seen.add(body.name);
-    const planet = prettyName(body.name);
+    const planet = bodyName(body.name, lang);
     const problems: string[] = [];
     const turrets = states[entityId(serverId, "sensor", "turrets_no_ammo", body.name)];
     const noAmmo = count(turrets?.state);
@@ -117,10 +136,13 @@ export function collectAlerts(
       // since_tick cannot be turned into wall time; the entity's last change is when the attack began.
       const since = typeof attack.last_changed === "string" ? Date.parse(attack.last_changed) : NaN;
       const minutes = Number.isFinite(since) ? Math.floor((now - since) / 60_000) : null;
+      // While the game does not tick, the attack cannot end and its minutes mean nothing.
       const title =
-        minutes === null
-          ? t(lang, "attack_title_now", { planet })
-          : t(lang, "attack_title", { planet, minutes: minutes < 1 ? "<1" : minutes });
+        frozen !== undefined
+          ? t(lang, "attack_title_frozen", { planet, state: t(lang, frozen) })
+          : minutes === null
+            ? t(lang, "attack_title_now", { planet })
+            : t(lang, "attack_title", { planet, minutes: minutes < 1 ? "<1" : minutes });
       const lines: CalloutLine[] = [];
       const losses = formatLosses(attrs.losses, lang);
       if (losses) lines.push({ text: t(lang, "attack_losses", { list: losses }), tone: "text" });
@@ -153,14 +175,32 @@ interface Sized {
   baselines: number[]; // relative to the box top
 }
 
+/** Greedy word wrap into lines of at most `chars` characters; at most `max` lines, the last one cut with "…". */
+export function wrapText(text: string, chars: number, max: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  // Only ordinary spaces break: no-break spaces hold their words together.
+  for (const word of text.split(/[ \t\n]+/).filter((w) => w !== "")) {
+    if (line === "") line = word;
+    else if (line.length + 1 + word.length <= chars) line += ` ${word}`;
+    else {
+      out.push(line);
+      line = word;
+    }
+  }
+  if (line !== "") out.push(line);
+  const lines = out.map((l) => truncate(l, chars));
+  if (lines.length <= max) return lines;
+  return [...lines.slice(0, max - 1), truncate(`${lines[max - 1]} ${lines[max]}`, chars - 1).replace(/…?$/, "…")];
+}
+
 function measure(item: CalloutInput, body: Placed, maxWidth: number): Sized {
-  const width = Math.min(
-    maxWidth,
-    Math.max(MIN_WIDTH, Math.ceil(Math.max(item.title.length * TITLE_CHAR, ...item.lines.map((l) => l.text.length * LINE_CHAR)) + 2 * PAD_X)),
-  );
+  const natural = Math.ceil(Math.max(item.title.length * TITLE_CHAR, ...item.lines.map((l) => l.text.length * LINE_CHAR)) + 2 * PAD_X);
+  const width = Math.min(maxWidth, MAX_WIDTH, Math.max(MIN_WIDTH, natural));
   const inner = width - 2 * PAD_X;
   const title = truncate(item.title, Math.floor(inner / TITLE_CHAR));
-  const lines = item.lines.map((l) => ({ ...l, text: truncate(l.text, Math.floor(inner / LINE_CHAR)) }));
+  const perLine = Math.max(1, Math.floor(inner / LINE_CHAR));
+  const lines = item.lines.flatMap((l) => wrapText(l.text, perLine, MAX_WRAP).map((text) => ({ ...l, text })));
   const strip = item.tone === "attack" ? HAZARD_STRIP : 0;
   const baselines = [strip + 25];
   lines.forEach((_, k) => baselines.push(strip + 25 + 21 + k * 19));
@@ -216,13 +256,35 @@ function leadsCross(a: Line, b: Line): boolean {
   return side(a, b.x1, b.y1) * side(a, b.x2, b.y2) < 0 && side(b, a.x1, a.y1) * side(b, a.x2, a.y2) < 0;
 }
 
-/** From the edge of the body to the facing edge of the box. */
-function leadLine(s: Sized, x: number, y: number, band: "top" | "bottom"): Line {
-  const top = band === "top";
+/**
+ * From the edge of the body to the facing edge of the box. When the body's own label sits
+ * between the body and the box (under it for a box below, above it for a box above), the lead
+ * starts just past the label instead of running through it.
+ */
+function leadLine(s: Sized, x: number, y: number): Line {
+  const x2 = Math.min(Math.max(s.body.cx, x + 12), x + s.width - 12);
+  const above = y + s.height <= s.body.cy;
+  const below = y >= s.body.cy;
+  if (!above && !below) {
+    // The box is level with the body (crowded maps only): the shortest lead, to its nearer edge.
+    const up = s.body.cy - y < y + s.height - s.body.cy;
+    return { x1: s.body.cx, y1: up ? s.body.cy - s.body.r : s.body.cy + s.body.r, x2, y2: up ? y : y + s.height };
+  }
+  // Later rows of a crowded band can end up on the other side of the body: lead to where the box is.
+  const top = above;
+  const own = labelRect(s.body);
+  const across = own.x0 < s.body.cx && s.body.cx < own.x1;
+  const y1 = top
+    ? across && own.y1 <= s.body.cy
+      ? own.y0 - LEAD_GAP
+      : s.body.cy - s.body.r
+    : across && own.y0 >= s.body.cy
+      ? own.y1 + LEAD_GAP
+      : s.body.cy + s.body.r;
   return {
     x1: s.body.cx,
-    y1: top ? s.body.cy - s.body.r : s.body.cy + s.body.r,
-    x2: Math.min(Math.max(s.body.cx, x + 12), x + s.width - 12),
+    y1,
+    x2,
     y2: top ? y + s.height : y,
   };
 }
@@ -252,7 +314,7 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
     height: s.height,
     band,
     baselines: s.baselines.map((b) => y + b),
-    line: leadLine(s, x, y, band),
+    line: leadLine(s, x, y),
   });
   const rangeOf = (band: "top" | "bottom"): BandRange => size[band] ?? { x0: 16, x1: size.width - 16 };
   const spanOf = (band: "top" | "bottom"): number => Math.max(0, rangeOf(band).x1 - rangeOf(band).x0);
@@ -263,7 +325,7 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
     const x = Math.min(Math.max(preferred, x0), Math.max(x0, x1 - s.width));
     const y = band === "top" ? EDGE : size.height - EDGE - s.height;
     const gap = band === "top" ? s.body.cy - s.body.r - (y + s.height) : y - (s.body.cy + s.body.r);
-    const line = leadLine(s, x, y, band);
+    const line = leadLine(s, x, y);
     return Math.hypot(Math.max(0, gap), Math.abs(x - preferred)) + CROSSING_COST * crossings(line, placed, s.item.body);
   };
   const assigned = items
@@ -300,7 +362,7 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
           if (others.some((c) => boxesOverlap(box, c, BOX_GAP))) return false;
           if (tier >= 1 && (placed.some((p) => boxHitsBody(box, p)) || labels.some((l) => boxHitsLabel(box, l)))) return false;
           if (tier < 2) return true;
-          const line = leadLine(s, x, y, band);
+          const line = leadLine(s, x, y);
           return crossings(line, placed, s.item.body) === 0 && !others.some((c) => leadsCross(line, c.line));
         };
         // A box strays only so far from its body; farther than that, the next row is better.

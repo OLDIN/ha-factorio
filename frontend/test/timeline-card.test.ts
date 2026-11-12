@@ -21,13 +21,14 @@ describe("buildPills", () => {
     expect(pills.map((p) => [p.lane, p.text])).toEqual([
       ["attacks", "Nauvis"],
       ["defense", "Nauvis: 6 without ammo"],
-      ["players_science", "Planet discovery gleba 2"],
+      ["players_science", "Planet discovery: Gleba 2"],
       ["players_science", "alice joined"],
     ]);
     expect(pills[0].x).toBeCloseTo(0.733, 3);
   });
   it("translates", () => {
     expect(buildPills(EVENTS, "uk", 60, NOW)[3].text).toBe("alice зайшов");
+    expect(buildPills(EVENTS, "uk", 60, NOW)[1].text).toBe("Наувіс: 6 без набоїв");
   });
   it("tolerates empty lists and dicts", () => {
     expect(buildPills([], "en", 60, NOW)).toEqual([]);
@@ -67,6 +68,12 @@ describe("factorio-timeline-card", () => {
     await el.updateComplete;
     expect(root.querySelectorAll(".lane")).toHaveLength(1);
     expect(root.querySelector("button.chip[aria-pressed=true]")).toBe(chips[1]);
+    el.remove();
+  });
+
+  it("explains the uneven scale under the title", async () => {
+    const el = await mount(hass([{ event: "player_joined", time: new Date().toISOString(), data: { player: "alice" } }], "uk"));
+    expect(el.shadowRoot!.querySelector(".head .hint")?.textContent).toBe("свіжі події займають більше місця");
     el.remove();
   });
 

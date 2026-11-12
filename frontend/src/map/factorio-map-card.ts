@@ -1,6 +1,7 @@
 import { LitElement, css, html, nothing, svg, type PropertyValues, type SVGTemplateResult } from "lit";
 import { entityId, slug } from "../shared/entities";
 import { t, tn } from "../shared/i18n";
+import { bodyName } from "../shared/names";
 import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass, type HassState } from "../shared/types";
@@ -13,7 +14,6 @@ import {
   labelRect,
   layoutBodies,
   legendLayout,
-  prettyName,
   sunGeometry,
   type Body,
   type Placed,
@@ -183,12 +183,12 @@ export class FactorioMapCard extends LitElement {
     const { x: legendX, y: legendY, rect: legendRect } = legendLayout({ width, height }, items.map((i) => i.text));
     const legend = { x: legendX, y: legendY, items };
 
-    const key = [width, height, JSON.stringify([...sublabels]), [...hidden].join(","), Math.round(header.x1), Math.round(legend.x)].join("|");
+    const key = [lang, width, height, JSON.stringify([...sublabels]), [...hidden].join(","), Math.round(header.x1), Math.round(legend.x)].join("|");
     if (!this._layout || this._layout.bodies !== bodiesRaw || this._layout.key !== key)
       this._layout = {
         bodies: bodiesRaw,
         key,
-        placed: layoutBodies(bodies, { width, height }, { sublabels, hidden, obstacles: [header, legendRect] }),
+        placed: layoutBodies(bodies, { width, height }, { sublabels, hidden, obstacles: [header, legendRect], title: (name) => bodyName(name, lang) }),
       };
     const placed = this._layout.placed;
     const callouts = placeCallouts(alerts, placed, {
@@ -201,7 +201,7 @@ export class FactorioMapCard extends LitElement {
 
     const facts = alerts.map((a) => [a.title, ...a.lines.map((l) => l.text)].join(", "));
     for (const [name, progress] of research)
-      facts.push(`${prettyName(name)}: ${t(lang, "research_progress", { progress: Math.round(progress) })}`);
+      facts.push(`${bodyName(name, lang)}: ${t(lang, "research_progress", { progress: Math.round(progress) })}`);
     const aria = [`${t(lang, "map_title")}: ${title}`, breakdown, ...facts].join(". ");
 
     return {
@@ -257,6 +257,9 @@ export class FactorioMapCard extends LitElement {
       <pattern id="fha-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" class="grid"></path></pattern>
       <pattern id="fha-hz" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <rect width="6" height="12" class="hz-a"></rect><rect x="6" width="6" height="12" class="hz-b"></rect>
+      </pattern>
+      <pattern id="fha-hz-sm" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="3" height="6" class="hz-a"></rect><rect x="3" width="3" height="6" class="hz-b"></rect>
       </pattern>
       <radialGradient id="fha-sun" cx="0.5" cy="0.5" r="0.5">
         <stop offset="0" class="sun-core"></stop><stop offset="0.55" class="sun-mid"></stop><stop offset="1" class="sun-edge"></stop>
@@ -327,7 +330,7 @@ export class FactorioMapCard extends LitElement {
             : body?.state === "built"
               ? "built"
               : "dim";
-    return svg`<text class="label ${cls}" x=${p.label.x} y=${p.label.y} text-anchor=${p.label.anchor} font-size=${font}>${prettyName(p.name)}</text>
+    return svg`<text class="label ${cls}" x=${p.label.x} y=${p.label.y} text-anchor=${p.label.anchor} font-size=${font}>${p.title ?? bodyName(p.name, v.lang)}</text>
       ${sub === undefined ? nothing : svg`<text class="sublabel" x=${p.label.x} y=${p.label.y + font + 3} text-anchor=${p.label.anchor} font-size=${font - 1}>${sub}</text>`}`;
   }
 
@@ -368,7 +371,7 @@ export class FactorioMapCard extends LitElement {
           return svg`<circle class="ring" cx=${cx} cy=${cy} r="7" stroke-width="2.5"></circle>
             <path class="research" d="M${cx} ${cy - 7} A7 7 0 0 1 ${cx + 7} ${cy}" stroke-width="2.5"></path>`;
         default:
-          return svg`<rect x=${cx - 7} y=${cy - 3} width="14" height="6" fill="url(#fha-hz)"></rect>`;
+          return svg`<rect x=${cx - 8} y=${cy - 3.5} width="16" height="7" rx="1" fill="url(#fha-hz-sm)"></rect>`;
       }
     };
     return svg`<g class="legend">${v.legend.items.map((item, i) => {

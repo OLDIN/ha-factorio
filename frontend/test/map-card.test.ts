@@ -59,6 +59,24 @@ describe("factorio-map-card", () => {
     el.remove();
   });
 
+  it("names vanilla bodies in Ukrainian", async () => {
+    const el = await mount({ server_id: "main" }, hass(DASHBOARD, "uk"));
+    const labels = [...el.shadowRoot!.querySelectorAll("text.label")].map((n) => n.textContent);
+    expect(labels).toContain("Наувіс");
+    expect(labels).toContain("Corrundum");
+    el.remove();
+  });
+
+  it("draws the attack legend icon with stripes fine enough to read at its size", async () => {
+    const el = await mount({ server_id: "main" }, hass(DASHBOARD));
+    const root = el.shadowRoot!;
+    const icon = root.querySelector("g.legend rect");
+    expect(icon?.getAttribute("fill")).toBe("url(#fha-hz-sm)");
+    const pattern = root.querySelector("pattern#fha-hz-sm")!;
+    expect(Number(pattern.getAttribute("width"))).toBeLessThanOrEqual(6);
+    el.remove();
+  });
+
   it("treats a body named like an Object.prototype key as a plain name", async () => {
     const odd = ["constructor", "__proto__", "toString"].map((name, i) => ({
       name, kind: "planet", x: i * 20, y: -15, distance: 15 + i, orientation: 0.1 * i, magnitude: 1, parent: null,
@@ -78,7 +96,7 @@ describe("factorio-map-card", () => {
   it("labels only alerts and research when label_healthy is off", async () => {
     const el = await mount({ server_id: "main", label_healthy: false }, hass(DASHBOARD, "uk"));
     const labels = [...el.shadowRoot!.querySelectorAll("text.label")].map((n) => n.textContent);
-    expect(labels.sort()).toEqual(["Corrundum", "Fulgora", "Maraxsis", "Nauvis"]);
+    expect(labels.sort()).toEqual(["Corrundum", "Maraxsis", "Наувіс", "Фульгора"]);
     expect(el.shadowRoot!.querySelector("svg")!.getAttribute("aria-label")).toContain("21 тіло в системі");
     el.remove();
   });

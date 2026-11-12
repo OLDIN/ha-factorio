@@ -6,6 +6,10 @@
  * their parent.
  */
 
+import { prettyName } from "../shared/names";
+
+export { prettyName };
+
 /** One entry of the `bodies` attribute; absent fields mean null. */
 export interface Body {
   name: string;
@@ -31,6 +35,8 @@ export interface Placed {
   label: { x: number; y: number; anchor: Anchor };
   /** The parent the body is drawn next to (a moon), or null for a top-level body. */
   parent: string | null;
+  /** The label text; the prettified id when absent. */
+  title?: string;
 }
 
 export interface Size {
@@ -52,6 +58,8 @@ export interface LayoutOptions {
   hidden?: ReadonlySet<string>;
   /** Areas bodies and labels keep away from (the summary, the legend). */
   obstacles?: Rect[];
+  /** Label text of a body (default: the prettified id). */
+  title?: (name: string) => string;
 }
 
 /** Side margin of the distance axis. */
@@ -80,10 +88,6 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v
 const mod1 = (v: number): number => ((v % 1) + 1) % 1;
 
 /** "solar-system-edge" → "Solar system edge" (localised game names come later). */
-export function prettyName(name: string): string {
-  const text = name.replace(/[-_]+/g, " ").trim();
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
 
 export function textWidth(text: string, font: number): number {
   return text.length * CHAR_WIDTH_13 * (font / LABEL_FONT);
@@ -130,7 +134,7 @@ export function labelFont(p: Placed): number {
 export function labelRect(p: Placed, sublabel?: string): Rect {
   const font = labelFont(p);
   const subFont = font - 1;
-  const width = Math.max(textWidth(prettyName(p.name), font), sublabel ? textWidth(sublabel, subFont) : 0);
+  const width = Math.max(textWidth(p.title ?? prettyName(p.name), font), sublabel ? textWidth(sublabel, subFont) : 0);
   const x0 = p.label.anchor === "start" ? p.label.x : p.label.anchor === "end" ? p.label.x - width : p.label.x - width / 2;
   const bottom = sublabel ? p.label.y + font + 3 + subFont * 0.25 : p.label.y + font * 0.25;
   return { x0, x1: x0 + width, y0: p.label.y - font, y1: bottom };
@@ -511,6 +515,7 @@ export function layoutBodies(bodies: Body[], size: Size, opts: LayoutOptions = {
     r: n.r,
     label: { x: n.cx, y: n.cy, anchor: "middle" as Anchor },
     parent: n.parent < 0 ? null : nodes[n.parent].name,
+    ...(opts.title ? { title: opts.title(n.name) } : {}),
   }));
   placeLabels(nodes, placed, size, opts);
   return placed;
