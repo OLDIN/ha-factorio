@@ -93,7 +93,9 @@ class FactorioCore:
             if data is None:
                 self._lines.reset()
             elif _is_tick(tick):
-                return self._lines.update(as_dict(data.get("by_planet")), tick, self._line_share, self._line_hold_ticks)
+                return self._lines.update(
+                    as_dict(data.get("by_planet")), tick, self._line_share, self._line_hold_ticks, from_clock=False
+                )
         elif category == "drills":
             if data is None:
                 self._drills.reset()
@@ -107,7 +109,7 @@ class FactorioCore:
         if machines is None:
             return
         before = self._all_problems()
-        events = self._lines.update(as_dict(machines.get("by_planet")), tick, self._line_share, self._line_hold_ticks)
+        events = self._lines.update(as_dict(machines.get("by_planet")), tick, self._line_share, self._line_hold_ticks, from_clock=True)
         self._emit(events, notify=bool(events) or self._all_problems() != before)
 
     def _all_problems(self) -> dict[str, list[dict]]:

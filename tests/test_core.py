@@ -335,3 +335,23 @@ def test_malformed_tick_ignored():
     for bad in ({"tick": "x"}, {"tick": True}, {}, None):
         feed(core, "tick", bad)
     assert core.problem_lines("nauvis") == []
+
+
+def test_redelivered_retained_machines_data_keeps_the_problem():
+    core = FactorioCore("main")
+    events, changes = collect(core)
+    machines(core, machines_payload(), 1000)
+    clock(core, 8200)
+    clock(core, 50000)
+    before = core.problem_lines("nauvis")
+    minutes = before[0]["minutes"]
+    seen: list = []
+    core.add_listener(lambda: seen.append(core.problem_lines("nauvis")))
+    events.clear()
+    changes.clear()
+    machines(core, machines_payload(), 1000)  # MQTT reconnect: retained data comes again
+    assert events == []
+    assert core.problem_lines("nauvis")[0]["minutes"] == minutes
+    assert seen and all(snapshot == before for snapshot in seen)  # no flap seen by listeners
+    clock(core, 50300)
+    assert events == []

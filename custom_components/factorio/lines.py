@@ -43,9 +43,12 @@ class LineTracker:
         self._since: dict[tuple[str, str], int] = {}  # reported problems: bad since
         self._ok_since: dict[tuple[str, str], int] = {}  # reported problems: fine since
 
-    def update(self, by_planet: dict, tick: int, share: float, hold_ticks: int) -> list[Event]:
+    def update(self, by_planet: dict, tick: int, share: float, hold_ticks: int, *, from_clock: bool) -> list[Event]:
+        """from_clock: the tick comes from the live game clock. Only the clock may detect an
+        older save (tick far back, resets); a data tick can be a stale re-delivery, so it is
+        clamped to the tracker clock and taken as-is only while there is no clock yet."""
         if self._last_tick is not None and tick < self._last_tick:
-            if self._last_tick - tick > BACKWARDS_RESET_TICKS:
+            if from_clock and self._last_tick - tick > BACKWARDS_RESET_TICKS:
                 self.reset()
             else:
                 tick = self._last_tick  # the clock never runs backwards
