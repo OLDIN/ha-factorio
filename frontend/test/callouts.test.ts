@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import bodies21 from "./fixtures/bodies-21.json";
+import crowded from "./fixtures/crowded-bottom-1678.json";
 import { generateBodies } from "./fixtures/generate";
-import { labelRect, layoutBodies, type Body, type Placed } from "../src/map/layout";
+import { labelRect, layoutBodies, legendLayout, type Body, type Placed, type Rect } from "../src/map/layout";
+import { t } from "../src/shared/i18n";
 import { collectAlerts, placeCallouts, type Callout, type CalloutInput } from "../src/map/callouts";
 import type { HassState } from "../src/shared/types";
 
@@ -47,7 +49,7 @@ function circleHitsBox(p: Placed, c: Callout): boolean {
   return Math.hypot(nx - p.cx, ny - p.cy) < p.r;
 }
 
-function checkPlacement(callouts: Callout[], placed: Placed[]): void {
+function checkPlacement(callouts: Callout[], placed: Placed[], opts: { width?: number; sublabels?: ReadonlyMap<string, string> } = {}): void {
   const byName = new Map(placed.map((p) => [p.name, p]));
   for (let i = 0; i < callouts.length; i++)
     for (let j = i + 1; j < callouts.length; j++)
@@ -57,7 +59,7 @@ function checkPlacement(callouts: Callout[], placed: Placed[]): void {
     // The line starts on the edge of its own body (tolerance 0.5 px), or right past the body's own
     // label when the label is in its way, and never runs through that label.
     const d = Math.hypot(c.line.x1 - body.cx, c.line.y1 - body.cy);
-    const own = labelRect(body);
+    const own = labelRect(body, opts.sublabels?.get(body.name));
     const pastLabel = c.line.x1 === body.cx && (Math.abs(c.line.y1 - own.y1 - LEAD_GAP) <= 0.5 || Math.abs(c.line.y1 - own.y0 + LEAD_GAP) <= 0.5);
     expect(Math.abs(d - body.r) <= 0.5 || pastLabel, c.body).toBe(true);
     // Crowded maps only: a label under a callout box is not seen (nor is a lead drawn under the box),
@@ -70,9 +72,44 @@ function checkPlacement(callouts: Callout[], placed: Placed[]): void {
     expect(c.line.x2).toBeLessThanOrEqual(c.x + c.width + 0.5);
     expect([c.y, c.y + c.height].some((y) => Math.abs(c.line.y2 - y) <= 0.5)).toBe(true);
     expect(c.x).toBeGreaterThanOrEqual(0);
-    expect(c.x + c.width).toBeLessThanOrEqual(SIZE.width);
+    expect(c.x + c.width).toBeLessThanOrEqual(opts.width ?? SIZE.width);
   }
 }
+
+/** Inside the rectangle shrunk by `inset` px: what the placement treats as touching a label. */
+const boxOverRect = (c: Callout, r: Rect, inset = 2): boolean =>
+  c.x < r.x1 - inset && r.x0 + inset < c.x + c.width && c.y < r.y1 - inset && r.y0 + inset < c.y + c.height;
+const shrink = (r: Rect, inset = 2): Rect => ({ x0: r.x0 + inset - 1, x1: r.x1 - inset + 1, y0: r.y0 + inset - 1, y1: r.y1 - inset + 1 });
+
+describe("a crowded bottom band (the example dashboard at 2000 px)", () => {
+  const sublabels = new Map(crowded.sublabels as [string, string][]);
+  const placed = crowded.placed as Placed[];
+  const size = { width: crowded.width, height: crowded.height };
+  const legend = legendLayout(size, ["built", "unlocked", "locked", "research", "attack", "machines"].map((k) => t("uk", `legend_${k}`))).rect;
+  const callouts = placeCallouts(crowded.items as CalloutInput[], placed, {
+    ...size,
+    top: { x0: crowded.headerX1 + 8, x1: crowded.width - 16 },
+    bottom: { x0: 16, x1: legend.x0 - 8 },
+    labels: placed.map((p) => labelRect(p, sublabels.get(p.name))),
+    sublabels,
+  });
+
+  it("places every callout", () => {
+    expect(callouts.map((c) => c.body).sort()).toEqual(["corrundum", "fulgora", "gleba", "nauvis"]);
+  });
+  it("covers no body label", () => {
+    for (const c of callouts)
+      for (const p of placed) expect(boxOverRect(c, labelRect(p, sublabels.get(p.name))), `${c.body} covers ${p.name}`).toBe(false);
+  });
+  it("leads through no other body's label", () => {
+    for (const c of callouts)
+      for (const p of placed)
+        if (p.name !== c.body) expect(segmentHitsRect(c.line, shrink(labelRect(p, sublabels.get(p.name)))), `${c.body} lead through ${p.name}`).toBe(false);
+  });
+  it("keeps the general rules", () => {
+    checkPlacement(callouts, placed, { width: crowded.width, sublabels });
+  });
+});
 
 describe("placeCallouts", () => {
   it("places the dashboard scenario without overlaps, lines start on their bodies", () => {

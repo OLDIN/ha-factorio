@@ -349,6 +349,8 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
   const labels = size.labels ?? placed.map(ownLabel);
   const result: Callout[] = [];
   const overflow: Sized[] = [];
+  /** Boxes that had to cover a body or label or lead across one, with what they were made from. */
+  const compromised = new Map<Callout, CalloutInput>();
   const make = (s: Sized, x: number, y: number, band: "top" | "bottom"): Callout => ({
     ...s.item,
     x,
@@ -380,8 +382,22 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
       const s = measure(item, body, spanOf(own), ownLabel(body));
       const alt = measure(item, body, spanOf(other), ownLabel(body));
       // The band of the body's half, unless its extent (summary, legend) makes the other band's lead shorter.
-      return lead(alt, other) < lead(s, own) ? { band: other, s: alt } : { band: own, s };
+      return { input: item, ...(lead(alt, other) < lead(s, own) ? { band: other, s: alt } : { band: own, s }) };
     });
+  const inputOf = new Map(assigned.map((a) => [a.s, a.input]));
+  // Tier 2: covers no body or label, its lead crosses no body, label or lead; 1: covers nothing; 0: anything.
+  const fitsAt = (s: Sized, x: number, y: number, others: Callout[], tier: number): boolean => {
+    const box = { x, y, width: s.width, height: s.height };
+    if (others.some((c) => boxesOverlap(box, c, BOX_GAP))) return false;
+    if (tier >= 1 && (placed.some((p) => boxHitsBody(box, p)) || labels.some((l) => boxHitsLabel(box, l)))) return false;
+    if (tier < 2) return true;
+    const line = leadLine(s, x, y);
+    return (
+      crossings(line, placed, s.item.body) === 0 &&
+      !labels.some((l) => leadHitsLabel(line, l)) &&
+      !others.some((c) => leadsCross(line, c.line))
+    );
+  };
   for (const band of ["top", "bottom"] as const) {
     const range = rangeOf(band);
     const span = spanOf(band);
@@ -398,23 +414,11 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
         const lo = range.x0;
         const hi = Math.max(range.x0, range.x1 - s.width);
         const preferred = Math.min(Math.max(s.body.cx - s.width / 2, lo), hi);
-        // Tier 2: covers no body or label, its lead crosses no body, label or lead; 1: covers nothing; 0: anything.
-        const fits = (x: number, tier: number): boolean => {
-          const box = { x, y, width: s.width, height: s.height };
-          const others = [...result, ...row];
-          if (others.some((c) => boxesOverlap(box, c, BOX_GAP))) return false;
-          if (tier >= 1 && (placed.some((p) => boxHitsBody(box, p)) || labels.some((l) => boxHitsLabel(box, l)))) return false;
-          if (tier < 2) return true;
-          const line = leadLine(s, x, y);
-          return (
-            crossings(line, placed, s.item.body) === 0 &&
-            !labels.some((l) => leadHitsLabel(line, l)) &&
-            !others.some((c) => leadsCross(line, c.line))
-          );
-        };
+        const fits = (x: number, tier: number): boolean => fitsAt(s, x, y, [...result, ...row], tier);
         // A box strays only so far from its body; farther than that, the next row is better.
         const reach = row.length === 0 ? span : Math.min(span, reachOf(s));
         let x: number | null = null;
+        let got = 2;
         for (const tier of [2, 1, 0]) {
           for (let step = 0; step <= reach && x === null; step += 20)
             // Boxes already in the row belong to bodies on the left: going right keeps the leads from crossing.
@@ -423,9 +427,16 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
                 x = cand;
                 break;
               }
-          if (x !== null) break;
+          if (x !== null) {
+            got = tier;
+            break;
+          }
         }
-        if (x !== null) row.push(make(s, x, y, band));
+        if (x !== null) {
+          const c = make(s, x, y, band);
+          row.push(c);
+          if (got < 2) compromised.set(c, inputOf.get(s)!);
+        }
         else if (row.length > 0) deferred.push(s);
         else overflow.push(s); // even an empty row has no room: the bands have run into each other
       }
@@ -451,7 +462,54 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
         if (!best || score < best.score) best = { x, y, score };
       }
     const { x, y } = best ?? { x: 4, y: 4 };
-    result.push(make(s, x, y, y + s.height / 2 < s.body.cy ? "top" : "bottom"));
+    const c = make(s, x, y, y + s.height / 2 < s.body.cy ? "top" : "bottom");
+    result.push(c);
+    compromised.set(c, inputOf.get(s)!);
   }
+  // Second chance, once every box has a place: a compromised box moves to the clean spot (tier 2,
+  // covering no other lead either) with the shortest lead in any row of either band, if there is one.
+  // Moving one can free the room another needed, hence two passes.
+  for (let pass = 0; pass < 2 && compromised.size > 0; pass++)
+    for (const [c, input] of [...compromised]) {
+      const others = result.filter((o) => o !== c);
+      const better = cleanSpot(input, byName.get(c.body)!, others);
+      if (better === null) continue;
+      result[result.indexOf(c)] = better;
+      compromised.delete(c);
+    }
   return result;
+
+  function cleanSpot(input: CalloutInput, body: Placed, others: Callout[]): Callout | null {
+    let best: { c: Callout; cost: number } | null = null;
+    for (const band of ["top", "bottom"] as const) {
+      const s = measure(input, body, spanOf(band), ownLabel(body));
+      const inBand = others.filter((o) => o.band === band);
+      const ys =
+        band === "top"
+          ? [...new Set(inBand.map((o) => o.y)), inBand.length > 0 ? Math.max(...inBand.map((o) => o.y + o.height)) + ROW_GAP : EDGE]
+          : [...new Set(inBand.map((o) => o.y + o.height)), inBand.length > 0 ? Math.min(...inBand.map((o) => o.y)) - ROW_GAP : size.height - EDGE].map(
+              (bottom) => bottom - s.height,
+            );
+      const { x0, x1 } = rangeOf(band);
+      const hi = Math.max(x0, x1 - s.width);
+      const preferred = Math.min(Math.max(s.body.cx - s.width / 2, x0), hi);
+      for (const y of ys) {
+        if (y < 4 || y + s.height > size.height - 4) continue;
+        for (let step = 0; step <= hi - x0; step += 20) {
+          const x = [preferred - step, preferred + step].find((cand) => cand >= x0 - 1e-6 && cand <= hi + 1e-6 && cleanAt(s, cand, y, others));
+          if (x === undefined) continue;
+          const c = make(s, x, y, band);
+          const cost = Math.hypot(c.line.x2 - c.line.x1, c.line.y2 - c.line.y1);
+          if (!best || cost < best.cost) best = { c, cost };
+          break;
+        }
+      }
+    }
+    return best?.c ?? null;
+  }
+
+  function cleanAt(s: Sized, x: number, y: number, others: Callout[]): boolean {
+    const box: Rect = { x0: x, y0: y, x1: x + s.width, y1: y + s.height };
+    return fitsAt(s, x, y, others, 2) && !others.some((o) => leadHitsLabel(o.line, box));
+  }
 }
