@@ -11,6 +11,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CATEGORIES,
+    CONF_LINE_OUTPUT_FULL,
+    DEFAULT_LINE_OUTPUT_FULL,
     DEFAULT_LINE_MINUTES,
     DEFAULT_LINE_SHARE,
     EVENT_WINDOW_MINUTES,
@@ -23,7 +25,11 @@ from .providers.base import ProviderMessage
 
 def build_config(options: Mapping[str, Any]) -> dict[str, Any]:
     """The 'what to collect' config sent to the game; categories default to on."""
-    return {"v": PROTOCOL_VERSION, "categories": {c: bool(options.get(c, True)) for c in CATEGORIES}}
+    return {
+        "v": PROTOCOL_VERSION,
+        "categories": {c: bool(options.get(c, True)) for c in CATEGORIES},
+        "lines": {"output_full": bool(options.get(CONF_LINE_OUTPUT_FULL, DEFAULT_LINE_OUTPUT_FULL))},
+    }
 
 
 def as_dict(value: Any) -> dict:
@@ -55,6 +61,7 @@ class FactorioCore:
         self._drills = DrillTracker()
         self._line_share = DEFAULT_LINE_SHARE / 100
         self._line_hold_ticks = DEFAULT_LINE_MINUTES * TICKS_PER_MINUTE
+        self._line_output_full = DEFAULT_LINE_OUTPUT_FULL
 
     # --- input --------------------------------------------------------------
 
@@ -94,7 +101,12 @@ class FactorioCore:
                 self._lines.reset()
             elif _is_tick(tick):
                 return self._lines.update(
-                    as_dict(data.get("by_planet")), tick, self._line_share, self._line_hold_ticks, from_clock=False
+                    as_dict(data.get("by_planet")),
+                    tick,
+                    self._line_share,
+                    self._line_hold_ticks,
+                    from_clock=False,
+                    output_full=self._line_output_full,
                 )
         elif category == "drills":
             if data is None:
@@ -109,7 +121,14 @@ class FactorioCore:
         if machines is None:
             return
         before = self._all_problems()
-        events = self._lines.update(as_dict(machines.get("by_planet")), tick, self._line_share, self._line_hold_ticks, from_clock=True)
+        events = self._lines.update(
+            as_dict(machines.get("by_planet")),
+            tick,
+            self._line_share,
+            self._line_hold_ticks,
+            from_clock=True,
+            output_full=self._line_output_full,
+        )
         self._emit(events, notify=bool(events) or self._all_problems() != before)
 
     def _all_problems(self) -> dict[str, list[dict]]:
@@ -129,10 +148,12 @@ class FactorioCore:
         for listener in list(self._event_listeners):
             listener(name, data if isinstance(data, dict) else {})
 
-    def set_line_rule(self, share: float, minutes: int) -> None:
-        """A line is a problem when `share` (0..1) of a group stands for `minutes` of game time."""
+    def set_line_rule(self, share: float, minutes: int, output_full: bool = DEFAULT_LINE_OUTPUT_FULL) -> None:
+        """A line is a problem when `share` (0..1) of a group stands for `minutes` of game time;
+        `output_full`: an "output full" machine counts as standing."""
         self._line_share = share
         self._line_hold_ticks = minutes * TICKS_PER_MINUTE
+        self._line_output_full = output_full
 
     # --- subscriptions --------------------------------------------------------
 
@@ -228,7 +249,13 @@ class FactorioCore:
         entry = self._planet_entry("machines", planet)
         if entry is None:
             return None
-        return {"total": entry.get("total"), "working": entry.get("working")}
+        total = entry.get("total")
+        counts = {key: entry.get(key) for key in ("no_input", "output_full", "no_power")}
+        ok = None  # machines without a problem under the line rule; needs the mod's planet counters (0.3.1+)
+        if _is_tick(total) and all(_is_tick(v) for v in counts.values()):
+            standing = counts["no_input"] + counts["no_power"] + (counts["output_full"] if self._line_output_full else 0)
+            ok = max(0, total - standing)
+        return {"total": total, "working": entry.get("working"), **counts, "ok": ok}
 
     def problem_lines(self, planet: str) -> list[dict] | None:
         if self._planet_entry("machines", planet) is None:

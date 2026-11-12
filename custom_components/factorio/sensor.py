@@ -226,7 +226,8 @@ class MachinesWorkingSensor(FactorioEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         machines = self._core.machines(self._planet) or {}
-        return {"total": machines.get("total"), "working": machines.get("working")}
+        keys = ("total", "working", "ok", "no_input", "output_full", "no_power")
+        return {key: machines.get(key) for key in keys}
 
 
 class ProblemLinesSensor(FactorioEntity, SensorEntity):

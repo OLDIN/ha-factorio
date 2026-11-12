@@ -10,6 +10,7 @@ from typing import Any
 
 TICKS_PER_MINUTE = 3600
 REASONS = ("no_input", "output_full", "no_power")  # order breaks ties
+STARVED = ("no_input", "no_power")  # what stands when "output full" does not count
 BACKWARDS_RESET_TICKS = 3600  # a tick this far back means an older save was loaded
 DRILL_EVENT_GAP_TICKS = 18000  # 5 game minutes per (planet, resource)
 UNKNOWN_RESOURCE = "unknown"
@@ -43,10 +44,15 @@ class LineTracker:
         self._since: dict[tuple[str, str], int] = {}  # reported problems: bad since
         self._ok_since: dict[tuple[str, str], int] = {}  # reported problems: fine since
 
-    def update(self, by_planet: dict, tick: int, share: float, hold_ticks: int, *, from_clock: bool) -> list[Event]:
+    def update(
+        self, by_planet: dict, tick: int, share: float, hold_ticks: int, *, from_clock: bool, output_full: bool = False
+    ) -> list[Event]:
         """from_clock: the tick comes from the live game clock. Only the clock may detect an
         older save (tick far back, resets); a data tick can be a stale re-delivery, so it is
-        clamped to the tracker clock and taken as-is only while there is no clock yet."""
+        clamped to the tracker clock and taken as-is only while there is no clock yet.
+        output_full: an "output full" machine counts as standing (saturated malls and buffers
+        are not a problem for most players, so by default it does not)."""
+        reasons = REASONS if output_full else STARVED
         if self._last_tick is not None and tick < self._last_tick:
             if from_clock and self._last_tick - tick > BACKWARDS_RESET_TICKS:
                 self.reset()
@@ -62,7 +68,7 @@ class LineTracker:
                 total = _int(group.get("total"))
                 if not isinstance(recipe, str) or total <= 0:
                     continue
-                counts = {reason: _int(group.get(reason)) for reason in REASONS}
+                counts = {reason: _int(group.get(reason)) for reason in reasons}
                 stopped = sum(counts.values())
                 if stopped / total < share:
                     continue
@@ -70,7 +76,7 @@ class LineTracker:
                     "recipe": recipe,
                     "total": total,
                     "stopped": stopped,
-                    "reason": max(REASONS, key=lambda r: counts[r]),
+                    "reason": max(reasons, key=lambda r: counts[r]),
                     "positions": _list(group.get("at")),
                 }
 

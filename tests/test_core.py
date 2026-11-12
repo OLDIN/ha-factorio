@@ -86,8 +86,15 @@ def test_listeners_notified_on_change_and_unsubscribe_works():
 
 
 def test_build_config_defaults_on():
-    assert build_config({}) == {"v": 1, "categories": {"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True}}
-    assert build_config({"players": False}) == {"v": 1, "categories": {**{"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True}, "players": False}}
+    assert build_config({}) == {"v": 1, "categories": {"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True},
+                                "lines": {"output_full": False}}
+
+
+    assert build_config({"players": False})["categories"] == {**{"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True}, "players": False}
+
+
+def test_build_config_passes_the_output_full_rule():
+    assert build_config({"line_problem_output_full": True})["lines"] == {"output_full": True}
 
 
 # --- data categories (stage 2a) ------------------------------------------------
@@ -271,11 +278,33 @@ def test_set_line_rule_changes_threshold_and_hold():
     assert [e[0] for e in events] == ["line_problem"]
 
 
+def test_output_full_rule_and_machines_without_problems():
+    core = FactorioCore("main")
+    events, _ = collect(core)
+    full = {"by_planet": {"nauvis": {"total": 10, "working": 4, "no_input": 1, "output_full": 5, "no_power": 0, "groups": [
+        {"recipe": "barrel", "total": 5, "working": 0, "no_input": 0, "output_full": 5, "no_power": 0, "at": [[1, 2]]}]}}}
+    machines(core, full, 0)
+    clock(core, 7200)
+    assert events == []  # a full mall is not a problem by default
+    assert core.machines("nauvis")["ok"] == 9  # 10 minus 1 without input
+    core.set_line_rule(0.3, 2, output_full=True)
+    assert core.machines("nauvis")["ok"] == 4
+    clock(core, 7300)
+    clock(core, 7300 + 7200)
+    assert [e[0] for e in events] == ["line_problem"]
+
+
+def test_machines_ok_is_unknown_without_status_counters():
+    core = FactorioCore("main")
+    machines(core, {"by_planet": {"nauvis": {"total": 10, "working": 4, "groups": []}}}, 0)
+    assert core.machines("nauvis")["ok"] is None  # mod 0.3.0 sends no planet counters
+
+
 def test_machines_and_drills_accessors():
     core = FactorioCore("main")
     assert core.machines("nauvis") is None and core.drills("nauvis") is None and core.problem_lines("nauvis") is None
     machines(core, machines_payload(), 10)
-    assert core.machines("nauvis") == {"total": 200, "working": 160}
+    assert core.machines("nauvis") == {"total": 200, "working": 160, "no_input": None, "output_full": None, "no_power": None, "ok": None}
     assert core.machines("gleba") is None and core.problem_lines("gleba") is None
     by_resource = {"iron-ore": {"total": 96, "working": 80, "depleted": 14, "stuck": 2}}
     feed(core, "data", {"category": "drills", "tick": 10,
@@ -326,7 +355,7 @@ def test_data_without_tick_does_not_feed_the_tracker():
     feed(core, "data", {"category": "machines", "data": machines_payload()})
     clock(core, 99999)
     assert events == []
-    assert core.machines("nauvis") == {"total": 200, "working": 160}
+    assert core.machines("nauvis") == {"total": 200, "working": 160, "no_input": None, "output_full": None, "no_power": None, "ok": None}
 
 
 def test_malformed_tick_ignored():

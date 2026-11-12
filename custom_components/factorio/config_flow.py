@@ -9,6 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -20,10 +21,12 @@ from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 from .const import (
     CATEGORIES,
     CONF_LINE_MINUTES,
+    CONF_LINE_OUTPUT_FULL,
     CONF_LINE_SHARE,
     CONF_PROVIDER,
     CONF_SERVER_ID,
     DEFAULT_LINE_MINUTES,
+    DEFAULT_LINE_OUTPUT_FULL,
     DEFAULT_LINE_SHARE,
     DOMAIN,
     PROVIDER_MQTT,
@@ -54,6 +57,9 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
         {
             vol.Optional(CONF_LINE_SHARE, default=current.get(CONF_LINE_SHARE, DEFAULT_LINE_SHARE)): _number(10, 100, "%"),
             vol.Optional(CONF_LINE_MINUTES, default=current.get(CONF_LINE_MINUTES, DEFAULT_LINE_MINUTES)): _number(1, 60, "min"),
+            vol.Optional(
+                CONF_LINE_OUTPUT_FULL, default=current.get(CONF_LINE_OUTPUT_FULL, DEFAULT_LINE_OUTPUT_FULL)
+            ): BooleanSelector(),
         }
     )
 
@@ -63,6 +69,7 @@ def _options(user_input: dict[str, Any]) -> dict[str, Any]:
         **_categories(user_input),
         CONF_LINE_SHARE: int(user_input.get(CONF_LINE_SHARE, DEFAULT_LINE_SHARE)),
         CONF_LINE_MINUTES: int(user_input.get(CONF_LINE_MINUTES, DEFAULT_LINE_MINUTES)),
+        CONF_LINE_OUTPUT_FULL: bool(user_input.get(CONF_LINE_OUTPUT_FULL, DEFAULT_LINE_OUTPUT_FULL)),
     }
 
 
