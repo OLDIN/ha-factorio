@@ -70,6 +70,12 @@ describe("factorio-timeline-card", () => {
     el.remove();
   });
 
+  it("explains the uneven scale under the title", async () => {
+    const el = await mount(hass([{ event: "player_joined", time: new Date().toISOString(), data: { player: "alice" } }], "uk"));
+    expect(el.shadowRoot!.querySelector(".head .hint")?.textContent).toBe("свіжі події займають більше місця");
+    el.remove();
+  });
+
   it("shows a calm message when nothing happened", async () => {
     const el = await mount(hass([]));
     expect(el.shadowRoot!.querySelector(".message")?.textContent).toContain("No events in the last hour");

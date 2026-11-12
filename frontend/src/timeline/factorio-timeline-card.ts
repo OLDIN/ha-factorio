@@ -209,7 +209,10 @@ export class FactorioTimelineCard extends LitElement {
 
     return html`<ha-card>
       <div class="head">
-        <h2>${t(lang, "tl_title")}</h2>
+        <div class="title">
+          <h2>${t(lang, "tl_title")}</h2>
+          <span class="hint">${t(lang, "tl_hint")}</span>
+        </div>
         <div class="chips" role="group" aria-label=${t(lang, "tl_title")}>
           ${(["all", ...LANES] as Filter[]).map(
             (f) => html`<button
@@ -288,9 +291,19 @@ export class FactorioTimelineCard extends LitElement {
         gap: 10px 16px;
         margin-bottom: 14px;
       }
+      .title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px 14px;
+      }
       h2 {
         margin: 0;
         font: 600 22px "Unbounded", system-ui, sans-serif;
+      }
+      .hint {
+        font-size: 13px;
+        color: var(--fha-muted);
       }
       .chips {
         display: flex;

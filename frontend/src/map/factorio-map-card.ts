@@ -258,6 +258,9 @@ export class FactorioMapCard extends LitElement {
       <pattern id="fha-hz" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <rect width="6" height="12" class="hz-a"></rect><rect x="6" width="6" height="12" class="hz-b"></rect>
       </pattern>
+      <pattern id="fha-hz-sm" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="3" height="6" class="hz-a"></rect><rect x="3" width="3" height="6" class="hz-b"></rect>
+      </pattern>
       <radialGradient id="fha-sun" cx="0.5" cy="0.5" r="0.5">
         <stop offset="0" class="sun-core"></stop><stop offset="0.55" class="sun-mid"></stop><stop offset="1" class="sun-edge"></stop>
       </radialGradient>
@@ -368,7 +371,7 @@ export class FactorioMapCard extends LitElement {
           return svg`<circle class="ring" cx=${cx} cy=${cy} r="7" stroke-width="2.5"></circle>
             <path class="research" d="M${cx} ${cy - 7} A7 7 0 0 1 ${cx + 7} ${cy}" stroke-width="2.5"></path>`;
         default:
-          return svg`<rect x=${cx - 7} y=${cy - 3} width="14" height="6" fill="url(#fha-hz)"></rect>`;
+          return svg`<rect x=${cx - 8} y=${cy - 3.5} width="16" height="7" rx="1" fill="url(#fha-hz-sm)"></rect>`;
       }
     };
     return svg`<g class="legend">${v.legend.items.map((item, i) => {
