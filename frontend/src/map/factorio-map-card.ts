@@ -212,6 +212,7 @@ export class FactorioMapCard extends LitElement {
       top: { x0: header.x1 + 8, x1: width - 16 },
       bottom: { x0: 16, x1: legendRect.x0 - 8 },
       labels: placed.filter((p) => !hidden.has(p.name)).map((p) => labelRect(p, sublabels.get(p.name))),
+      sublabels,
     });
 
     const facts = alerts.map((a) => [a.title, ...a.lines.map((l) => l.text)].join(", "));

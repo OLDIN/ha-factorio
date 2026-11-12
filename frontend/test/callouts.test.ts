@@ -161,6 +161,15 @@ describe("placeCallouts", () => {
     checkPlacement([c], placed);
   });
 
+  it("starts the lead past the sublabel under the body's name (research, machines share)", () => {
+    const placed: Placed[] = [{ name: "home", cx: 400, cy: 400, r: 18, label: { x: 400, y: 436, anchor: "middle" }, parent: null }];
+    const sublabels = new Map([["home", "93%"]]);
+    const [c] = placeCallouts([attackInput("home")], placed, { ...SIZE, sublabels });
+    expect(c.band).toBe("bottom");
+    expect(c.line.y1).toBeCloseTo(labelRect(placed[0], "93%").y1 + LEAD_GAP, 5);
+    expect(c.line.y1).toBeGreaterThan(labelRect(placed[0]).y1 + LEAD_GAP);
+  });
+
   it("starts the lead past the body's own label above it", () => {
     const placed: Placed[] = [{ name: "home", cx: 400, cy: 220, r: 18, label: { x: 400, y: 194, anchor: "middle" }, parent: null }];
     const [c] = placeCallouts([warningInput("home")], placed, SIZE);

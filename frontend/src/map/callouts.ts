@@ -46,8 +46,10 @@ export interface CalloutArea {
   top?: BandRange;
   /** Horizontal extent of the lower band. */
   bottom?: BandRange;
-  /** Label boxes as drawn; by default each body's one-line label. */
+  /** Label boxes as drawn; by default each body's label with its sublabel. */
   labels?: Rect[];
+  /** Second label lines under body names (research progress, machines share): a lead starts past them. */
+  sublabels?: ReadonlyMap<string, string>;
 }
 
 export const CALLOUT_TITLE_FONT = 13;
@@ -183,6 +185,7 @@ interface Sized {
   width: number;
   height: number;
   baselines: number[]; // relative to the box top
+  label: Rect; // the body's own label as drawn, sublabel included
 }
 
 /** Greedy word wrap into lines of at most `chars` characters; at most `max` lines, the last one cut with "…". */
@@ -204,7 +207,7 @@ export function wrapText(text: string, chars: number, max: number): string[] {
   return [...lines.slice(0, max - 1), truncate(`${lines[max - 1]} ${lines[max]}`, chars - 1).replace(/…?$/, "…")];
 }
 
-function measure(item: CalloutInput, body: Placed, maxWidth: number): Sized {
+function measure(item: CalloutInput, body: Placed, maxWidth: number, label: Rect): Sized {
   const natural = Math.ceil(Math.max(item.title.length * TITLE_CHAR, ...item.lines.map((l) => l.text.length * LINE_CHAR)) + 2 * PAD_X);
   const width = Math.min(maxWidth, MAX_WIDTH, Math.max(MIN_WIDTH, natural));
   const inner = width - 2 * PAD_X;
@@ -215,7 +218,7 @@ function measure(item: CalloutInput, body: Placed, maxWidth: number): Sized {
   const baselines = [strip + 25];
   lines.forEach((_, k) => baselines.push(strip + 25 + 21 + k * 19));
   const height = baselines[baselines.length - 1] + 13;
-  return { item: { ...item, title, lines }, body, width, height, baselines };
+  return { item: { ...item, title, lines }, body, width, height, baselines, label };
 }
 
 interface Box {
@@ -311,7 +314,7 @@ function leadLine(s: Sized, x: number, y: number): Line {
   }
   // Later rows of a crowded band can end up on the other side of the body: lead to where the box is.
   const top = above;
-  const own = labelRect(s.body);
+  const own = s.label;
   const across = own.x0 < s.body.cx && s.body.cx < own.x1;
   const y1 = top
     ? across && own.y1 <= s.body.cy
@@ -342,7 +345,8 @@ const CROSSING_COST = 400;
  */
 export function placeCallouts(items: CalloutInput[], placed: Placed[], size: CalloutArea): Callout[] {
   const byName = new Map(placed.map((p) => [p.name, p]));
-  const labels = size.labels ?? placed.map((p) => labelRect(p));
+  const ownLabel = (p: Placed): Rect => labelRect(p, size.sublabels?.get(p.name));
+  const labels = size.labels ?? placed.map(ownLabel);
   const result: Callout[] = [];
   const overflow: Sized[] = [];
   const make = (s: Sized, x: number, y: number, band: "top" | "bottom"): Callout => ({
@@ -373,8 +377,8 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
       const body = byName.get(item.body)!;
       const own = body.cy < size.height / 2 ? "top" : "bottom";
       const other = own === "top" ? "bottom" : "top";
-      const s = measure(item, body, spanOf(own));
-      const alt = measure(item, body, spanOf(other));
+      const s = measure(item, body, spanOf(own), ownLabel(body));
+      const alt = measure(item, body, spanOf(other), ownLabel(body));
       // The band of the body's half, unless its extent (summary, legend) makes the other band's lead shorter.
       return lead(alt, other) < lead(s, own) ? { band: other, s: alt } : { band: own, s };
     });
