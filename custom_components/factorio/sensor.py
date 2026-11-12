@@ -1,4 +1,4 @@
-"""Sensors: game state, players, bodies, research, recent events; per planet: turrets, walls, evolution."""
+"""Sensors: game state, players, bodies, research, recent events; per planet: turrets, walls, evolution, machines, lines, drills."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from homeassistant.util import dt as dt_util
 
 from . import FactorioConfigEntry
 from .const import GAME_STATES
-from .core import as_list
+from .core import as_dict, as_list
 from .entity import FactorioEntity
 
 
@@ -34,7 +34,13 @@ async def async_setup_entry(
     planets = entry.runtime_data.planets
 
     def planet_sensors(planet: str) -> list[Entity]:
-        sensors: list[Entity] = [TurretsNoAmmoSensor(entry, planet), WallsDamagedSensor(entry, planet)]
+        sensors: list[Entity] = [
+            TurretsNoAmmoSensor(entry, planet),
+            WallsDamagedSensor(entry, planet),
+            MachinesWorkingSensor(entry, planet),
+            ProblemLinesSensor(entry, planet),
+            DrillsDepletedSensor(entry, planet),
+        ]
         evolution = EvolutionSensor(entry, planet)
         # Only planets with enemies have a value; a sensor registered before (restart) stays.
         if core.evolution(planet) is not None or planets.known(Platform.SENSOR, evolution.unique_id):
@@ -198,6 +204,71 @@ class WallsDamagedSensor(_PlanetDefenseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"positions": as_list((self._data() or {}).get("at"))}
+
+
+class MachinesWorkingSensor(FactorioEntity, SensorEntity):
+    """Share of working machines on the planet; unknown (never unavailable) without data."""
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: FactorioConfigEntry, planet: str) -> None:
+        super().__init__(entry, Platform.SENSOR, "machines_working", planet)
+
+    @property
+    def native_value(self) -> int | None:
+        machines = self._core.machines(self._planet)
+        total = (machines or {}).get("total")
+        if not total:
+            return None
+        return round((machines.get("working") or 0) / total * 100)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        machines = self._core.machines(self._planet) or {}
+        return {"total": machines.get("total"), "working": machines.get("working")}
+
+
+class ProblemLinesSensor(FactorioEntity, SensorEntity):
+    _unrecorded_attributes = frozenset({"lines"})
+
+    def __init__(self, entry: FactorioConfigEntry, planet: str) -> None:
+        super().__init__(entry, Platform.SENSOR, "problem_lines", planet)
+
+    @property
+    def native_value(self) -> int | None:
+        lines = self._core.problem_lines(self._planet)
+        return None if lines is None else len(lines)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"lines": self._core.problem_lines(self._planet) or []}
+
+
+class DrillsDepletedSensor(FactorioEntity, SensorEntity):
+    _unrecorded_attributes = frozenset({"by_resource"})
+
+    def __init__(self, entry: FactorioConfigEntry, planet: str) -> None:
+        super().__init__(entry, Platform.SENSOR, "drills_depleted", planet)
+
+    def _by_resource(self) -> dict[str, dict[str, int]] | None:
+        drills = self._core.drills(self._planet)
+        if drills is None:
+            return None
+        result: dict[str, dict[str, int]] = {}
+        for resource, stats in as_dict(drills.get("by_resource")).items():
+            stats = as_dict(stats)
+            result[resource] = {"depleted": stats.get("depleted") or 0, "total": stats.get("total") or 0}
+        return result
+
+    @property
+    def native_value(self) -> int | None:
+        by_resource = self._by_resource()
+        return None if by_resource is None else sum(r["depleted"] for r in by_resource.values())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"by_resource": self._by_resource() or {}}
 
 
 class EvolutionSensor(FactorioEntity, SensorEntity):

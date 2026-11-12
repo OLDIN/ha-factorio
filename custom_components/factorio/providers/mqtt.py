@@ -16,7 +16,11 @@ from ..const import TOPIC_PREFIX
 from .base import MessageKind, Provider, ProviderMessage
 
 _LOGGER = logging.getLogger(__name__)
-_KINDS: tuple[MessageKind, ...] = ("availability", "hello", "state", "event", "data")
+_KINDS: tuple[MessageKind, ...] = ("availability", "hello", "state", "event", "data", "tick")
+
+
+def _as_tick(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 class MqttProvider(Provider):
@@ -33,6 +37,8 @@ class MqttProvider(Provider):
             if kind == "data":
                 handler = self._data_handler(on_message)
                 topic += "/+"
+            elif kind == "tick":
+                handler = self._tick_handler(on_message)
             else:
                 handler = self._handler(kind, on_message)
             self._unsubscribe.append(await mqtt.async_subscribe(self._hass, topic, handler, qos=1))
@@ -60,6 +66,7 @@ class MqttProvider(Provider):
         def handle(msg: ReceiveMessage) -> None:
             category = str(msg.topic).rsplit("/", 1)[-1]
             data: Any = None  # an empty payload: the category was turned off
+            tick: Any = None
             if msg.payload:
                 try:
                     body = json.loads(msg.payload)
@@ -68,10 +75,30 @@ class MqttProvider(Provider):
                     return
                 if not isinstance(body, dict):
                     return
+                tick = body.get("tick")
                 data = body.get("data")
                 if not isinstance(data, dict):
                     data = {} if isinstance(data, list) else None
-            on_message(ProviderMessage(kind="data", payload={"category": category, "data": data}))
+            on_message(ProviderMessage(kind="data", payload={"category": category, "data": data, "tick": _as_tick(tick)}))
+
+        return handle
+
+    @staticmethod
+    def _tick_handler(on_message: Callable[[ProviderMessage], None]) -> Callable[[ReceiveMessage], None]:
+        """The game clock: {"v":1,"tick":N}, not retained."""
+
+        @callback
+        def handle(msg: ReceiveMessage) -> None:
+            if not msg.payload:
+                return
+            try:
+                body = json.loads(msg.payload)
+            except ValueError:
+                _LOGGER.warning("Ignored invalid JSON on %s: %r", msg.topic, msg.payload)
+                return
+            tick = _as_tick(body.get("tick")) if isinstance(body, dict) else None
+            if tick is not None:
+                on_message(ProviderMessage(kind="tick", payload={"tick": tick}))
 
         return handle
 

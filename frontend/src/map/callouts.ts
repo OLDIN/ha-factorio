@@ -5,6 +5,7 @@
 import { entityId } from "../shared/entities";
 import { t } from "../shared/i18n";
 import { bodyName } from "../shared/names";
+import { drillText, lineText, readDrills, readLines } from "../shared/production";
 import { asDict, asList, type HassState } from "../shared/types";
 import { labelRect, prettyName, type Body, type Placed, type Rect } from "./layout";
 
@@ -45,8 +46,10 @@ export interface CalloutArea {
   top?: BandRange;
   /** Horizontal extent of the lower band. */
   bottom?: BandRange;
-  /** Label boxes as drawn; by default each body's one-line label. */
+  /** Label boxes as drawn; by default each body's label with its sublabel. */
   labels?: Rect[];
+  /** Second label lines under body names (research progress, machines share): a lead starts past them. */
+  sublabels?: ReadonlyMap<string, string>;
 }
 
 export const CALLOUT_TITLE_FONT = 13;
@@ -130,6 +133,9 @@ export function collectAlerts(
     const damaged = count(states[entityId(serverId, "sensor", "walls_damaged", body.name)]?.state);
     if (damaged > 0) problems.push(t(lang, "walls_damaged", { count: damaged }));
 
+    const problemLines = readLines(states, serverId, body.name) ?? [];
+    const production = [...problemLines.map((l) => lineText(l, lang)), ...(readDrills(states, serverId, body.name) ?? []).map((d) => drillText(d, lang))];
+
     const attack = states[entityId(serverId, "binary_sensor", "under_attack", body.name)];
     if (attack?.state === "on") {
       const attrs = asDict(attack.attributes);
@@ -149,14 +155,20 @@ export function collectAlerts(
       const pos = asList(attrs.position);
       if (pos.length >= 2 && isNum(pos[0]) && isNum(pos[1]))
         lines.push({ text: t(lang, "attack_near", { position: `[${Math.round(pos[0])}, ${Math.round(pos[1])}]` }), tone: "muted" });
-      for (const text of problems) lines.push({ text, tone: "amber" });
+      for (const text of [...problems, ...production]) lines.push({ text, tone: "amber" });
       out.push({ body: body.name, tone: "attack", title, lines });
-    } else if (problems.length > 0) {
+    } else if (problems.length > 0 || problemLines.length > 0) {
+      // Depleted drills alone make no callout (the planets card has them); with a problem line they ride along.
       out.push({
         body: body.name,
         tone: "warning",
-        title: t(lang, "defense_title", { planet }),
-        lines: problems.map((text) => ({ text, tone: "text" as const })),
+        title:
+          problems.length > 0
+            ? t(lang, "defense_title", { planet })
+            : problemLines.length === 1
+              ? t(lang, "line_stopped_title", { planet })
+              : t(lang, "lines_stopped_title", { planet, count: problemLines.length }),
+        lines: [...problems, ...production].map((text) => ({ text, tone: "text" as const })),
       });
     }
   }
@@ -173,6 +185,7 @@ interface Sized {
   width: number;
   height: number;
   baselines: number[]; // relative to the box top
+  label: Rect; // the body's own label as drawn, sublabel included
 }
 
 /** Greedy word wrap into lines of at most `chars` characters; at most `max` lines, the last one cut with "…". */
@@ -194,7 +207,7 @@ export function wrapText(text: string, chars: number, max: number): string[] {
   return [...lines.slice(0, max - 1), truncate(`${lines[max - 1]} ${lines[max]}`, chars - 1).replace(/…?$/, "…")];
 }
 
-function measure(item: CalloutInput, body: Placed, maxWidth: number): Sized {
+function measure(item: CalloutInput, body: Placed, maxWidth: number, label: Rect): Sized {
   const natural = Math.ceil(Math.max(item.title.length * TITLE_CHAR, ...item.lines.map((l) => l.text.length * LINE_CHAR)) + 2 * PAD_X);
   const width = Math.min(maxWidth, MAX_WIDTH, Math.max(MIN_WIDTH, natural));
   const inner = width - 2 * PAD_X;
@@ -205,7 +218,7 @@ function measure(item: CalloutInput, body: Placed, maxWidth: number): Sized {
   const baselines = [strip + 25];
   lines.forEach((_, k) => baselines.push(strip + 25 + 21 + k * 19));
   const height = baselines[baselines.length - 1] + 13;
-  return { item: { ...item, title, lines }, body, width, height, baselines };
+  return { item: { ...item, title, lines }, body, width, height, baselines, label };
 }
 
 interface Box {
@@ -301,7 +314,7 @@ function leadLine(s: Sized, x: number, y: number): Line {
   }
   // Later rows of a crowded band can end up on the other side of the body: lead to where the box is.
   const top = above;
-  const own = labelRect(s.body);
+  const own = s.label;
   const across = own.x0 < s.body.cx && s.body.cx < own.x1;
   const y1 = top
     ? across && own.y1 <= s.body.cy
@@ -332,9 +345,12 @@ const CROSSING_COST = 400;
  */
 export function placeCallouts(items: CalloutInput[], placed: Placed[], size: CalloutArea): Callout[] {
   const byName = new Map(placed.map((p) => [p.name, p]));
-  const labels = size.labels ?? placed.map((p) => labelRect(p));
+  const ownLabel = (p: Placed): Rect => labelRect(p, size.sublabels?.get(p.name));
+  const labels = size.labels ?? placed.map(ownLabel);
   const result: Callout[] = [];
   const overflow: Sized[] = [];
+  /** Boxes that had to cover a body or label or lead across one, with what they were made from. */
+  const compromised = new Map<Callout, CalloutInput>();
   const make = (s: Sized, x: number, y: number, band: "top" | "bottom"): Callout => ({
     ...s.item,
     x,
@@ -363,11 +379,25 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
       const body = byName.get(item.body)!;
       const own = body.cy < size.height / 2 ? "top" : "bottom";
       const other = own === "top" ? "bottom" : "top";
-      const s = measure(item, body, spanOf(own));
-      const alt = measure(item, body, spanOf(other));
+      const s = measure(item, body, spanOf(own), ownLabel(body));
+      const alt = measure(item, body, spanOf(other), ownLabel(body));
       // The band of the body's half, unless its extent (summary, legend) makes the other band's lead shorter.
-      return lead(alt, other) < lead(s, own) ? { band: other, s: alt } : { band: own, s };
+      return { input: item, ...(lead(alt, other) < lead(s, own) ? { band: other, s: alt } : { band: own, s }) };
     });
+  const inputOf = new Map(assigned.map((a) => [a.s, a.input]));
+  // Tier 2: covers no body or label, its lead crosses no body, label or lead; 1: covers nothing; 0: anything.
+  const fitsAt = (s: Sized, x: number, y: number, others: Callout[], tier: number): boolean => {
+    const box = { x, y, width: s.width, height: s.height };
+    if (others.some((c) => boxesOverlap(box, c, BOX_GAP))) return false;
+    if (tier >= 1 && (placed.some((p) => boxHitsBody(box, p)) || labels.some((l) => boxHitsLabel(box, l)))) return false;
+    if (tier < 2) return true;
+    const line = leadLine(s, x, y);
+    return (
+      crossings(line, placed, s.item.body) === 0 &&
+      !labels.some((l) => leadHitsLabel(line, l)) &&
+      !others.some((c) => leadsCross(line, c.line))
+    );
+  };
   for (const band of ["top", "bottom"] as const) {
     const range = rangeOf(band);
     const span = spanOf(band);
@@ -384,23 +414,11 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
         const lo = range.x0;
         const hi = Math.max(range.x0, range.x1 - s.width);
         const preferred = Math.min(Math.max(s.body.cx - s.width / 2, lo), hi);
-        // Tier 2: covers no body or label, its lead crosses no body, label or lead; 1: covers nothing; 0: anything.
-        const fits = (x: number, tier: number): boolean => {
-          const box = { x, y, width: s.width, height: s.height };
-          const others = [...result, ...row];
-          if (others.some((c) => boxesOverlap(box, c, BOX_GAP))) return false;
-          if (tier >= 1 && (placed.some((p) => boxHitsBody(box, p)) || labels.some((l) => boxHitsLabel(box, l)))) return false;
-          if (tier < 2) return true;
-          const line = leadLine(s, x, y);
-          return (
-            crossings(line, placed, s.item.body) === 0 &&
-            !labels.some((l) => leadHitsLabel(line, l)) &&
-            !others.some((c) => leadsCross(line, c.line))
-          );
-        };
+        const fits = (x: number, tier: number): boolean => fitsAt(s, x, y, [...result, ...row], tier);
         // A box strays only so far from its body; farther than that, the next row is better.
         const reach = row.length === 0 ? span : Math.min(span, reachOf(s));
         let x: number | null = null;
+        let got = 2;
         for (const tier of [2, 1, 0]) {
           for (let step = 0; step <= reach && x === null; step += 20)
             // Boxes already in the row belong to bodies on the left: going right keeps the leads from crossing.
@@ -409,9 +427,16 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
                 x = cand;
                 break;
               }
-          if (x !== null) break;
+          if (x !== null) {
+            got = tier;
+            break;
+          }
         }
-        if (x !== null) row.push(make(s, x, y, band));
+        if (x !== null) {
+          const c = make(s, x, y, band);
+          row.push(c);
+          if (got < 2) compromised.set(c, inputOf.get(s)!);
+        }
         else if (row.length > 0) deferred.push(s);
         else overflow.push(s); // even an empty row has no room: the bands have run into each other
       }
@@ -437,7 +462,54 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
         if (!best || score < best.score) best = { x, y, score };
       }
     const { x, y } = best ?? { x: 4, y: 4 };
-    result.push(make(s, x, y, y + s.height / 2 < s.body.cy ? "top" : "bottom"));
+    const c = make(s, x, y, y + s.height / 2 < s.body.cy ? "top" : "bottom");
+    result.push(c);
+    compromised.set(c, inputOf.get(s)!);
   }
+  // Second chance, once every box has a place: a compromised box moves to the clean spot (tier 2,
+  // covering no other lead either) with the shortest lead in any row of either band, if there is one.
+  // Moving one can free the room another needed, hence two passes.
+  for (let pass = 0; pass < 2 && compromised.size > 0; pass++)
+    for (const [c, input] of [...compromised]) {
+      const others = result.filter((o) => o !== c);
+      const better = cleanSpot(input, byName.get(c.body)!, others);
+      if (better === null) continue;
+      result[result.indexOf(c)] = better;
+      compromised.delete(c);
+    }
   return result;
+
+  function cleanSpot(input: CalloutInput, body: Placed, others: Callout[]): Callout | null {
+    let best: { c: Callout; cost: number } | null = null;
+    for (const band of ["top", "bottom"] as const) {
+      const s = measure(input, body, spanOf(band), ownLabel(body));
+      const inBand = others.filter((o) => o.band === band);
+      const ys =
+        band === "top"
+          ? [...new Set(inBand.map((o) => o.y)), inBand.length > 0 ? Math.max(...inBand.map((o) => o.y + o.height)) + ROW_GAP : EDGE]
+          : [...new Set(inBand.map((o) => o.y + o.height)), inBand.length > 0 ? Math.min(...inBand.map((o) => o.y)) - ROW_GAP : size.height - EDGE].map(
+              (bottom) => bottom - s.height,
+            );
+      const { x0, x1 } = rangeOf(band);
+      const hi = Math.max(x0, x1 - s.width);
+      const preferred = Math.min(Math.max(s.body.cx - s.width / 2, x0), hi);
+      for (const y of ys) {
+        if (y < 4 || y + s.height > size.height - 4) continue;
+        for (let step = 0; step <= hi - x0; step += 20) {
+          const x = [preferred - step, preferred + step].find((cand) => cand >= x0 - 1e-6 && cand <= hi + 1e-6 && cleanAt(s, cand, y, others));
+          if (x === undefined) continue;
+          const c = make(s, x, y, band);
+          const cost = Math.hypot(c.line.x2 - c.line.x1, c.line.y2 - c.line.y1);
+          if (!best || cost < best.cost) best = { c, cost };
+          break;
+        }
+      }
+    }
+    return best?.c ?? null;
+  }
+
+  function cleanAt(s: Sized, x: number, y: number, others: Callout[]): boolean {
+    const box: Rect = { x0: x, y0: y, x1: x + s.width, y1: y + s.height };
+    return fitsAt(s, x, y, others, 2) && !others.some((o) => leadHitsLabel(o.line, box));
+  }
 }

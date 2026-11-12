@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import bodies21 from "./fixtures/bodies-21.json";
+import crowded from "./fixtures/crowded-bottom-1678.json";
 import { generateBodies } from "./fixtures/generate";
-import { labelRect, layoutBodies, type Body, type Placed } from "../src/map/layout";
+import { labelRect, layoutBodies, legendLayout, type Body, type Placed, type Rect } from "../src/map/layout";
+import { t } from "../src/shared/i18n";
 import { collectAlerts, placeCallouts, type Callout, type CalloutInput } from "../src/map/callouts";
 import type { HassState } from "../src/shared/types";
 
@@ -47,7 +49,7 @@ function circleHitsBox(p: Placed, c: Callout): boolean {
   return Math.hypot(nx - p.cx, ny - p.cy) < p.r;
 }
 
-function checkPlacement(callouts: Callout[], placed: Placed[]): void {
+function checkPlacement(callouts: Callout[], placed: Placed[], opts: { width?: number; sublabels?: ReadonlyMap<string, string> } = {}): void {
   const byName = new Map(placed.map((p) => [p.name, p]));
   for (let i = 0; i < callouts.length; i++)
     for (let j = i + 1; j < callouts.length; j++)
@@ -57,7 +59,7 @@ function checkPlacement(callouts: Callout[], placed: Placed[]): void {
     // The line starts on the edge of its own body (tolerance 0.5 px), or right past the body's own
     // label when the label is in its way, and never runs through that label.
     const d = Math.hypot(c.line.x1 - body.cx, c.line.y1 - body.cy);
-    const own = labelRect(body);
+    const own = labelRect(body, opts.sublabels?.get(body.name));
     const pastLabel = c.line.x1 === body.cx && (Math.abs(c.line.y1 - own.y1 - LEAD_GAP) <= 0.5 || Math.abs(c.line.y1 - own.y0 + LEAD_GAP) <= 0.5);
     expect(Math.abs(d - body.r) <= 0.5 || pastLabel, c.body).toBe(true);
     // Crowded maps only: a label under a callout box is not seen (nor is a lead drawn under the box),
@@ -70,9 +72,44 @@ function checkPlacement(callouts: Callout[], placed: Placed[]): void {
     expect(c.line.x2).toBeLessThanOrEqual(c.x + c.width + 0.5);
     expect([c.y, c.y + c.height].some((y) => Math.abs(c.line.y2 - y) <= 0.5)).toBe(true);
     expect(c.x).toBeGreaterThanOrEqual(0);
-    expect(c.x + c.width).toBeLessThanOrEqual(SIZE.width);
+    expect(c.x + c.width).toBeLessThanOrEqual(opts.width ?? SIZE.width);
   }
 }
+
+/** Inside the rectangle shrunk by `inset` px: what the placement treats as touching a label. */
+const boxOverRect = (c: Callout, r: Rect, inset = 2): boolean =>
+  c.x < r.x1 - inset && r.x0 + inset < c.x + c.width && c.y < r.y1 - inset && r.y0 + inset < c.y + c.height;
+const shrink = (r: Rect, inset = 2): Rect => ({ x0: r.x0 + inset - 1, x1: r.x1 - inset + 1, y0: r.y0 + inset - 1, y1: r.y1 - inset + 1 });
+
+describe("a crowded bottom band (the example dashboard at 2000 px)", () => {
+  const sublabels = new Map(crowded.sublabels as [string, string][]);
+  const placed = crowded.placed as Placed[];
+  const size = { width: crowded.width, height: crowded.height };
+  const legend = legendLayout(size, ["built", "unlocked", "locked", "research", "attack", "machines"].map((k) => t("uk", `legend_${k}`))).rect;
+  const callouts = placeCallouts(crowded.items as CalloutInput[], placed, {
+    ...size,
+    top: { x0: crowded.headerX1 + 8, x1: crowded.width - 16 },
+    bottom: { x0: 16, x1: legend.x0 - 8 },
+    labels: placed.map((p) => labelRect(p, sublabels.get(p.name))),
+    sublabels,
+  });
+
+  it("places every callout", () => {
+    expect(callouts.map((c) => c.body).sort()).toEqual(["corrundum", "fulgora", "gleba", "nauvis"]);
+  });
+  it("covers no body label", () => {
+    for (const c of callouts)
+      for (const p of placed) expect(boxOverRect(c, labelRect(p, sublabels.get(p.name))), `${c.body} covers ${p.name}`).toBe(false);
+  });
+  it("leads through no other body's label", () => {
+    for (const c of callouts)
+      for (const p of placed)
+        if (p.name !== c.body) expect(segmentHitsRect(c.line, shrink(labelRect(p, sublabels.get(p.name)))), `${c.body} lead through ${p.name}`).toBe(false);
+  });
+  it("keeps the general rules", () => {
+    checkPlacement(callouts, placed, { width: crowded.width, sublabels });
+  });
+});
 
 describe("placeCallouts", () => {
   it("places the dashboard scenario without overlaps, lines start on their bodies", () => {
@@ -159,6 +196,15 @@ describe("placeCallouts", () => {
     expect(c.line.x1).toBe(400);
     expect(c.line.y1).toBeCloseTo(l.y1 + LEAD_GAP, 5);
     checkPlacement([c], placed);
+  });
+
+  it("starts the lead past the sublabel under the body's name (research, machines share)", () => {
+    const placed: Placed[] = [{ name: "home", cx: 400, cy: 400, r: 18, label: { x: 400, y: 436, anchor: "middle" }, parent: null }];
+    const sublabels = new Map([["home", "93%"]]);
+    const [c] = placeCallouts([attackInput("home")], placed, { ...SIZE, sublabels });
+    expect(c.band).toBe("bottom");
+    expect(c.line.y1).toBeCloseTo(labelRect(placed[0], "93%").y1 + LEAD_GAP, 5);
+    expect(c.line.y1).toBeGreaterThan(labelRect(placed[0]).y1 + LEAD_GAP);
   });
 
   it("starts the lead past the body's own label above it", () => {
@@ -285,6 +331,76 @@ describe("collectAlerts", () => {
     expect(alerts[0].title).toBe("Фульгора: оборона");
   });
 
+  const lineSensor = (lines: unknown[]): HassState => ({ state: String(lines.length), attributes: { lines } });
+  const scrap = { recipe: "scrap-recycling", reason: "output_full", stopped: 31, total: 48, minutes: 11 };
+  const smelt = { recipe: "iron-plate", reason: "no_input", stopped: 20, total: 60, minutes: 3 };
+
+  it("builds a line-stopped callout for a planet with one problem line", () => {
+    const alerts = collectAlerts(states({ "sensor.factorio_main_vulcanus_problem_lines": lineSensor([scrap]) }), "main", BODIES, "uk", NOW);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].body).toBe("vulcanus");
+    expect(alerts[0].tone).toBe("warning");
+    expect(alerts[0].title).toBe("Вулканус: лінія стоїть");
+    expect(alerts[0].lines).toEqual([{ text: "Scrap recycling: стоїть 31 з 48, вихід забитий, 11 хв", tone: "text" }]);
+  });
+
+  it("counts the lines in the title and adds depleted drills of the same planet", () => {
+    const alerts = collectAlerts(
+      states({
+        "sensor.factorio_main_vulcanus_problem_lines": lineSensor([scrap, smelt]),
+        "sensor.factorio_main_vulcanus_drills_depleted": { state: "3", attributes: { by_resource: { "iron-ore": { total: 12, depleted: 3 } } } },
+      }),
+      "main",
+      BODIES,
+      "en",
+      NOW,
+    );
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].title).toBe("Vulcanus: lines stopped (2)");
+    expect(alerts[0].lines.map((l) => l.text)).toEqual([
+      "Scrap recycling: 31 of 48 stopped, output full, 11 min",
+      "Iron plate: 20 of 60 stopped, no input, 3 min",
+      "Iron ore: 3 of 12 drills depleted",
+    ]);
+    expect(collectAlerts(states({ "sensor.factorio_main_vulcanus_problem_lines": lineSensor([scrap]) }), "main", BODIES, "en", NOW)[0].title).toBe(
+      "Vulcanus: line stopped",
+    );
+  });
+
+  it("keeps the attack and defense headings and appends the production rows", () => {
+    const alerts = collectAlerts(
+      states({
+        "binary_sensor.factorio_main_nauvis_under_attack": attack,
+        "sensor.factorio_main_nauvis_problem_lines": lineSensor([scrap]),
+        "sensor.factorio_main_fulgora_turrets_no_ammo": { state: "6", attributes: { total: 40, no_power: 0, positions: [] } },
+        "sensor.factorio_main_fulgora_problem_lines": lineSensor([scrap]),
+      }),
+      "main",
+      BODIES,
+      "en",
+      NOW,
+    );
+    const nauvis = alerts.find((a) => a.body === "nauvis")!;
+    expect(nauvis.tone).toBe("attack");
+    expect(nauvis.title).toBe("Attack on Nauvis: 2 min");
+    expect(nauvis.lines.at(-1)).toEqual({ text: "Scrap recycling: 31 of 48 stopped, output full, 11 min", tone: "amber" });
+    const fulgora = alerts.find((a) => a.body === "fulgora")!;
+    expect(fulgora.tone).toBe("warning");
+    expect(fulgora.title).toBe("Fulgora: defense");
+    expect(fulgora.lines.map((l) => l.text)).toEqual(["6 turrets without ammo", "Scrap recycling: 31 of 48 stopped, output full, 11 min"]);
+  });
+
+  it("stays quiet for depleted drills alone", () => {
+    const alerts = collectAlerts(
+      states({ "sensor.factorio_main_vulcanus_drills_depleted": { state: "3", attributes: { by_resource: { "iron-ore": { total: 12, depleted: 3 } } } } }),
+      "main",
+      BODIES,
+      "en",
+      NOW,
+    );
+    expect(alerts).toEqual([]);
+  });
+
   it("shows nothing when the entities are missing or unknown", () => {
     expect(collectAlerts({}, "main", BODIES, "en", NOW)).toEqual([]);
     expect(
@@ -329,5 +445,33 @@ describe("collectAlerts", () => {
     );
     expect(alerts).toHaveLength(1);
     expect(alerts[0].title).toContain("Nauvis");
+  });
+});
+
+describe("placeCallouts with line callouts", () => {
+  it("places line-stopped callouts with several rows without overlaps and with leads on their bodies", () => {
+    const rows = [
+      { text: "Scrap recycling: 31 of 48 stopped, output full, 11 min", tone: "text" as const },
+      { text: "Iron plate: 20 of 60 stopped, no input, 3 min", tone: "text" as const },
+      { text: "Iron ore: 3 of 12 drills depleted", tone: "text" as const },
+    ];
+    const items: CalloutInput[] = ["vulcanus", "gleba", "fulgora", "aquilo"].map((body) => ({
+      body,
+      tone: "warning",
+      title: `${body}: lines stopped (2)`,
+      lines: rows,
+    }));
+    const placed = layoutBodies(BODIES, SIZE);
+    const out = placeCallouts(items, placed, SIZE);
+    expect(out).toHaveLength(4);
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) expect(overlap(out[i], out[j])).toBe(false);
+      expect(out[i].x).toBeGreaterThanOrEqual(0);
+      expect(out[i].x + out[i].width).toBeLessThanOrEqual(SIZE.width);
+      expect(out[i].y + out[i].height).toBeLessThanOrEqual(SIZE.height);
+      for (const p of placed) expect(circleHitsBox(p, out[i])).toBe(false);
+      const p = placed.find((q) => q.name === out[i].body)!;
+      expect(Math.hypot(out[i].line.x1 - p.cx, out[i].line.y1 - p.cy)).toBeLessThanOrEqual(p.r + 40);
+    }
   });
 });

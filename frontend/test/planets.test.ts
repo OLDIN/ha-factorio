@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeAll, describe, expect, it } from "vitest";
 import { planetsModel } from "../src/planets/model";
+import { readDrills, readLines, readMachines } from "../src/shared/production";
 import type { Hass, HassState } from "../src/shared/types";
 
 const NOW = Date.parse("2026-11-12T12:00:00Z");
@@ -33,7 +34,54 @@ const STATES: Record<string, HassState> = {
   "sensor.factorio_main_research": { state: "planet-discovery-maraxsis", attributes: { progress: 62, unlocks: ["maraxsis"] } },
 };
 
+const FULGORA: Record<string, HassState> = {
+  "sensor.factorio_main_fulgora_machines_working": { state: "88", attributes: { total: 441, working: 388 } },
+  "sensor.factorio_main_fulgora_problem_lines": {
+    state: "1",
+    attributes: { lines: [{ recipe: "scrap-recycling", reason: "output_full", stopped: 31, total: 48, minutes: 11, positions: [[1, 2]] }] },
+  },
+  "sensor.factorio_main_fulgora_drills_depleted": {
+    state: "14",
+    attributes: { by_resource: { "iron-ore": { depleted: 14, total: 96 }, "copper-ore": { depleted: 0, total: 20 } } },
+  },
+};
+
+describe("production readers", () => {
+  it("parse the three sensors, null when missing or unknown", () => {
+    const st = { ...STATES, ...FULGORA };
+    expect(readMachines(st, "main", "fulgora")).toEqual({ total: 441, working: 388 });
+    expect(readLines(st, "main", "fulgora")).toEqual([
+      { recipe: "scrap-recycling", reason: "output_full", stopped: 31, total: 48, minutes: 11 },
+    ]);
+    expect(readDrills(st, "main", "fulgora")).toEqual([{ resource: "iron-ore", depleted: 14, total: 96 }]);
+    expect(readMachines(st, "main", "nauvis")).toBeNull();
+    expect(readLines(st, "main", "nauvis")).toBeNull();
+    expect(readDrills(st, "main", "nauvis")).toBeNull();
+    const unknown = { "sensor.factorio_main_fulgora_machines_working": { state: "unknown", attributes: { total: null, working: null } } };
+    expect(readMachines(unknown, "main", "fulgora")).toBeNull();
+  });
+});
+
 describe("planetsModel", () => {
+  it("shows machines, problem lines and depleted drills; they make a planet need attention", () => {
+    const m = planetsModel({ ...STATES, ...FULGORA }, "main", "uk", NOW);
+    const f = m.attention.find((p) => p.name === "fulgora")!;
+    expect(f.tone).toBe("amber");
+    expect(f.machines).toEqual({ total: 441, working: 388 });
+    expect(f.lines).toEqual([
+      { text: "Scrap recycling: стоїть 31 з 48, вихід забитий, 11 хв", tone: "amber" },
+      { text: "Iron ore: вичерпано 14 з 96 бурів", tone: "amber" },
+    ]);
+    expect(m.healthy.map((p) => p.name)).toEqual(["vulcanus"]);
+  });
+
+  it("keeps machines on healthy planets and null without data", () => {
+    const st = { ...STATES, "sensor.factorio_main_vulcanus_machines_working": { state: "97", attributes: { total: 100, working: 97 } } };
+    const m = planetsModel(st, "main", "en", NOW);
+    expect(m.healthy.find((p) => p.name === "vulcanus")?.machines).toEqual({ total: 100, working: 97 });
+    expect(m.healthy.find((p) => p.name === "fulgora")?.machines).toBeNull();
+  });
+
   it("puts planets that need attention first, attacks before defense", () => {
     const m = planetsModel(STATES, "main", "en", NOW);
     expect(m.attention.map((p) => p.name)).toEqual(["gleba", "nauvis"]);
@@ -112,6 +160,42 @@ describe("factorio-planets-card", () => {
     const locked = [...root.querySelectorAll(".locked li")];
     expect(locked).toHaveLength(2);
     expect(locked[0].textContent).toContain("62%");
+    el.remove();
+  });
+
+  it("draws the machines ring in the planet tone and says how many work", async () => {
+    const el = await mount(hass({ ...STATES, ...FULGORA }));
+    const root = el.shadowRoot!;
+    const row = [...root.querySelectorAll(".row")].find((r) => r.querySelector(".name")?.textContent === "Фульгора")!;
+    expect(row.classList.contains("amber")).toBe(true);
+    const ring = row.querySelector(".badge.gauge") as HTMLElement;
+    // A full-size badge, not the 9 px `.ring` marker of the locked list (class names must not clash).
+    expect(ring.classList.contains("ring")).toBe(false);
+    expect(ring.style.background).toContain("conic-gradient");
+    expect(ring.style.background).toContain("88%");
+    expect(row.querySelector(".pct")?.textContent).toBe("88%");
+    expect(row.querySelector(".machines")?.textContent).toBe("працює 388 з 441 машини");
+    expect([...row.querySelectorAll(".line")].map((l) => l.textContent)).toEqual([
+      "Scrap recycling: стоїть 31 з 48, вихід забитий, 11 хв",
+      "Iron ore: вичерпано 14 з 96 бурів",
+    ]);
+    // Rows without machine data keep the 2a ball.
+    const gleba = [...root.querySelectorAll(".row")].find((r) => r.querySelector(".name")?.textContent === "Глеба")!;
+    expect(gleba.querySelector(".sphere")).not.toBeNull();
+    expect(gleba.querySelector(".pct")).toBeNull();
+    el.remove();
+  });
+
+  it("shows the share of working machines on the healthy chips instead of evolution", async () => {
+    const st = {
+      ...STATES,
+      "sensor.factorio_main_vulcanus_machines_working": { state: "97", attributes: { total: 100, working: 97 } },
+      "sensor.factorio_main_fulgora_machines_working": { state: "100", attributes: { total: 10, working: 10 } },
+    };
+    const el = await mount(hass(st));
+    const root = el.shadowRoot!;
+    expect([...root.querySelectorAll(".healthy li .num")].map((n) => n.textContent)).toEqual(["97%", "100%"]);
+    expect(root.querySelector(".healthy .hint")).toBeNull();
     el.remove();
   });
 

@@ -25,7 +25,9 @@
           "planets": "Bodies in the system",
           "defense": "Defense: attacks, turrets, walls",
           "evolution": "Enemy evolution",
-          "research": "Research"
+          "research": "Research",
+          "machines": "Production lines: machines and problem lines",
+          "drills": "Mining drills: depleted ore"
         }
       }
     },
@@ -47,7 +49,15 @@
           "planets": "Bodies in the system",
           "defense": "Defense: attacks, turrets, walls",
           "evolution": "Enemy evolution",
-          "research": "Research"
+          "research": "Research",
+          "machines": "Production lines: machines and problem lines",
+          "drills": "Mining drills: depleted ore",
+          "line_problem_share": "Line problem: share of machines standing",
+          "line_problem_minutes": "Line problem: how long it stands"
+        },
+        "data_description": {
+          "line_problem_share": "A production line counts as a problem when at least this share of its machines stands (10-100).",
+          "line_problem_minutes": "...for this many game minutes (1-60). The same wait applies before the problem is cleared."
         }
       }
     }
@@ -173,6 +183,33 @@
           }
         }
       },
+      "machines_working": {
+        "name": "Machines working",
+        "state_attributes": {
+          "total": {
+            "name": "Machines in total"
+          },
+          "working": {
+            "name": "Working"
+          }
+        }
+      },
+      "problem_lines": {
+        "name": "Problem lines",
+        "state_attributes": {
+          "lines": {
+            "name": "Lines"
+          }
+        }
+      },
+      "drills_depleted": {
+        "name": "Depleted drills",
+        "state_attributes": {
+          "by_resource": {
+            "name": "By resource"
+          }
+        }
+      },
       "evolution": {
         "name": "Enemy evolution"
       }
@@ -190,7 +227,10 @@
               "turrets_no_ammo": "Turrets out of ammo",
               "turrets_ok": "Turrets have ammo again",
               "research_finished": "Research finished",
-              "player_died": "Player died"
+              "player_died": "Player died",
+              "line_problem": "Production line stopped",
+              "line_recovered": "Production line running again",
+              "drills_depleted": "Drills ran out of ore"
             }
           }
         }

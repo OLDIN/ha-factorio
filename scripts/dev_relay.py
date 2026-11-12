@@ -3,8 +3,13 @@
 usage: dev_relay.py <host> <port> <scenario> [server_id]
 Scenarios: paused (an attack on a paused game, nobody online), running (players, research,
 events), calm (nothing wrong). availability, hello, state and data/* are retained, events
-are not, as with the real relay. Values are what the mod sends: evolution and research
-progress are fractions, the integration turns them into percent.
+and the game clock are not, as with the real relay. Values are what the mod sends: evolution
+and research progress are fractions, the integration turns them into percent.
+
+paused and running carry a stopped line on Fulgora and depleted iron drills on Nauvis.
+data/machines goes out once with tick TICK; then, while the game runs (running, calm), the
+clock topic moves to TICK + CLOCK_AHEAD, as relay heartbeats would: two game minutes later
+the default line rule (30% for 2 min) reports the Fulgora line, with no new machines data.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BODIES = json.loads((ROOT / "frontend" / "test" / "fixtures" / "bodies-21.json").read_text())
 SCENARIOS = ("paused", "running", "calm")
 TICK = 90_000_000
+CLOCK_AHEAD = 7_200  # two game minutes: the default line_problem_minutes
 
 
 def iso(minutes_ago: float = 0) -> str:
@@ -60,6 +66,25 @@ def retained(name: str, sid: str) -> dict[str, object]:
     evolution = {"nauvis": 0.924, "vulcanus": 0.792, "gleba": 0.889, "fulgora": 0.761, "aquilo": 0.53, "moshine": 0.61, "corrundum": 0.4}
     game_state = "paused" if name == "paused" else "running"
 
+    def group(recipe: str, total: int, working: int, no_input: int = 0, output_full: int = 0, no_power: int = 0, at=()) -> dict:
+        return {"recipe": recipe, "total": total, "working": working, "no_input": no_input,
+                "output_full": output_full, "no_power": no_power, "at": [list(p) for p in at]}
+
+    machines = {
+        "nauvis": {"total": 1551, "working": 1551 if calm else 1512,
+                   "groups": [] if calm else [group("iron-plate", 96, 80, no_input=16, at=[(-120, 40), (-118, 40)])]},
+        "vulcanus": {"total": 300, "working": 300 if calm else 291, "groups": []},
+        "gleba": {"total": 220, "working": 220 if calm else 204, "groups": []},
+        "fulgora": {"total": 441, "working": 441 if calm else 388,
+                    "groups": [] if calm else [group("scrap-recycling", 48, 17, output_full=31, at=[(310, -42), (312, -42), (314, -42)])]},
+    }
+    iron = {"total": 96, "working": 96 if calm else 80, "depleted": 0 if calm else 14, "stuck": 0 if calm else 2}
+    drills = {
+        "nauvis": {"total": 140, "working": 140 if calm else 124,
+                   "by_resource": {"iron-ore": iron, "copper-ore": {"total": 44, "working": 44, "depleted": 0, "stuck": 0}}},
+        "vulcanus": {"total": 30, "working": 30, "by_resource": {"tungsten-ore": {"total": 30, "working": 30, "depleted": 0, "stuck": 0}}},
+    }
+
     def data(payload: dict) -> dict:
         return {"v": 1, "tick": TICK, "data": payload}
 
@@ -80,6 +105,8 @@ def retained(name: str, sid: str) -> dict[str, object]:
         "data/evolution": data({"by_planet": evolution}),
         "data/defense": data({"by_planet": defense}),
         "data/players": data({"online": players, "afk_minutes": {"guest": 4} if running else {}}),
+        "data/machines": data({"by_planet": machines}),
+        "data/drills": data({"by_planet": drills}),
     }
 
 
@@ -113,6 +140,9 @@ def main() -> None:
         client.publish(f"{base}/{suffix}", body, qos=1, retain=True).wait_for_publish()
     for event in events(name):
         client.publish(f"{base}/event", json.dumps(event, separators=(",", ":")), qos=1).wait_for_publish()
+    if name != "paused":  # the relay publishes the clock only while the game runs
+        clock = {"v": 1, "tick": TICK + CLOCK_AHEAD}
+        client.publish(f"{base}/tick", json.dumps(clock, separators=(",", ":")), qos=1).wait_for_publish()
     client.loop_stop()
     client.disconnect()
     print(f"scenario {name}: published to {host}:{port} as {base}")

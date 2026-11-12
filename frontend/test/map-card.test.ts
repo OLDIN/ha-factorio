@@ -77,6 +77,61 @@ describe("factorio-map-card", () => {
     el.remove();
   });
 
+  it("draws a ring arc by the share of working machines with a percentage under the name", async () => {
+    const h = hass({
+      ...DASHBOARD,
+      "sensor.factorio_main_vulcanus_machines_working": { state: "97", attributes: { total: 100, working: 97 } },
+    });
+    const el = await mount({ server_id: "main" }, h);
+    const root = el.shadowRoot!;
+    const arcs = root.querySelectorAll("circle.machines");
+    expect(arcs).toHaveLength(1);
+    const arc = arcs[0];
+    const r = Number(arc.getAttribute("r"));
+    const c = 2 * Math.PI * r;
+    const [dash, gap] = arc.getAttribute("stroke-dasharray")!.split(" ").map(Number);
+    expect(dash).toBeCloseTo(c * 0.97, 1);
+    expect(gap).toBeCloseTo(c, 1);
+    const subs = [...root.querySelectorAll("text.sublabel")].map((n) => n.textContent);
+    expect(subs).toContain("97%");
+    el.remove();
+  });
+
+  it("puts the research progress before the machines share and draws no ring without data", async () => {
+    const withData = hass({
+      ...DASHBOARD,
+      "sensor.factorio_main_maraxsis_machines_working": { state: "5", attributes: { total: 10, working: 5 } },
+    });
+    const el = await mount({ server_id: "main" }, withData);
+    expect(el.shadowRoot!.querySelectorAll("circle.machines")).toHaveLength(0);
+    el.remove();
+    const el2 = await mount({ server_id: "main" }, hass(DASHBOARD));
+    expect(el2.shadowRoot!.querySelectorAll("circle.machines")).toHaveLength(0);
+    el2.remove();
+  });
+
+  it("shows a line-stopped callout for a planet with only a problem line, and the ring legend", async () => {
+    const h = hass({
+      ...DASHBOARD,
+      "sensor.factorio_main_gleba_problem_lines": {
+        state: "1",
+        attributes: { lines: [{ recipe: "scrap-recycling", reason: "output_full", stopped: 31, total: 48, minutes: 11 }] },
+      },
+    });
+    const el = await mount({ server_id: "main" }, h);
+    const root = el.shadowRoot!;
+    expect(root.querySelectorAll("g.callout")).toHaveLength(4);
+    const aria = root.querySelector("svg")!.getAttribute("aria-label")!;
+    expect(aria).toContain("Gleba: line stopped");
+    expect(aria).toContain("Scrap recycling: 31 of 48 stopped, output full, 11 min");
+    const legend = root.querySelector("g.legend")!.textContent!;
+    expect(legend).toContain("ring: share of machines working");
+    el.remove();
+    const uk = await mount({ server_id: "main" }, hass(DASHBOARD, "uk"));
+    expect(uk.shadowRoot!.querySelector("g.legend")!.textContent).toContain("кільце: частка машин, що працюють");
+    uk.remove();
+  });
+
   it("treats a body named like an Object.prototype key as a plain name", async () => {
     const odd = ["constructor", "__proto__", "toString"].map((name, i) => ({
       name, kind: "planet", x: i * 20, y: -15, distance: 15 + i, orientation: 0.1 * i, magnitude: 1, parent: null,

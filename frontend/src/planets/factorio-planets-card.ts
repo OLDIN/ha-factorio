@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
 import { defineEditor } from "../shared/editor";
 import { findServer, langOf, serverChanged } from "../shared/hass";
-import { t } from "../shared/i18n";
+import { t, tn } from "../shared/i18n";
 import { bodyName } from "../shared/names";
 import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts, panelStyles } from "../shared/theme";
@@ -16,6 +16,7 @@ interface PlanetsCardConfig {
 const EDITOR = "factorio-planets-card-editor";
 defineEditor(EDITOR);
 
+const share = (m: { total: number; working: number }): number => (m.working / m.total) * 100;
 const pct = (n: number): string => `${Math.round(n)}%`;
 
 /** The "Planets" block of the AB-1 dashboard: planets that need attention, then the rest. */
@@ -95,13 +96,17 @@ export class FactorioPlanetsCard extends LitElement {
                   <div class="sub">
                     <h3>${t(lang, "pl_healthy")}</h3>
                     <span class="count">${m.healthy.length}</span>
-                    ${m.healthy.some((r) => r.evolution !== null) ? html`<span class="hint">${t(lang, "pl_healthy_hint")}</span>` : nothing}
+                    ${m.healthy.some((r) => r.machines === null && r.evolution !== null) ? html`<span class="hint">${t(lang, "pl_healthy_hint")}</span>` : nothing}
                   </div>
                   <ul class="grid">
                     ${m.healthy.map(
                       (r) => html`<li>
                         <span class="dot" style="background:${planetColor(r.name)}"></span><span class="nm">${name(r.name)}</span
-                        >${r.evolution === null ? nothing : html`<span class="num" title=${t(lang, "pl_evolution")}>${pct(r.evolution)}</span>`}
+                        >${r.machines !== null
+                          ? html`<span class="num" title=${t(lang, "pl_machines_share")}>${pct(share(r.machines))}</span>`
+                          : r.evolution === null
+                            ? nothing
+                            : html`<span class="num" title=${t(lang, "pl_evolution")}>${pct(r.evolution)}</span>`}
                       </li>`,
                     )}
                   </ul>
@@ -139,9 +144,14 @@ export class FactorioPlanetsCard extends LitElement {
 
   private _row(lang: string, r: PlanetRow) {
     return html`<div class="row ${r.tone}">
-      <div class="badge"><span class="sphere" style="background-color:${planetColor(r.name)}"></span></div>
+      ${r.machines
+        ? html`<div class="badge gauge" style="background:conic-gradient(var(--tone) ${pct(share(r.machines))}, var(--fha-line) 0)">
+            <span class="pct">${pct(share(r.machines))}</span>
+          </div>`
+        : html`<div class="badge"><span class="sphere" style="background-color:${planetColor(r.name)}"></span></div>`}
       <div class="body">
         <span class="name">${bodyName(r.name, lang)}</span>
+        ${r.machines ? html`<span class="machines">${tn(lang, "pl_machines", r.machines.total, { working: r.machines.working })}</span>` : nothing}
         ${r.lines.map((l) => html`<span class="line ${l.tone}">${l.text}</span>`)}
       </div>
       <div class="evo">
@@ -189,6 +199,27 @@ export class FactorioPlanetsCard extends LitElement {
         display: flex;
         align-items: center;
         justify-content: center;
+      }
+      /* Stage 2b: the ring is the share of working machines, the number sits in the middle. */
+      .badge.gauge {
+        border: none;
+        position: relative;
+      }
+      .badge.gauge::before {
+        content: "";
+        position: absolute;
+        inset: 5px;
+        border-radius: 50%;
+        background: var(--fha-panel);
+      }
+      .pct {
+        position: relative;
+        font: 600 13px "Unbounded", system-ui, sans-serif;
+        font-variant-numeric: tabular-nums;
+      }
+      .machines {
+        font-size: 13px;
+        color: var(--fha-muted);
       }
       .sphere {
         width: 34px;

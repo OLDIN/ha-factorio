@@ -11,7 +11,7 @@ described in its [docs/protocol.md](https://github.com/OLDIN/factorio-ha-bridge/
 Factorio mod ──UDP──▶ relay ──MQTT──▶ this integration
 ```
 
-Status: stage 2a (planets, defense, evolution, research) with the dashboard cards.
+Status: stage 2b (production lines and mining drills) on top of 2a (planets, defense, evolution, research), with the dashboard cards.
 
 ## Install
 
@@ -79,12 +79,23 @@ appearing when the planet is built or reported by the defense / evolution data:
 | `sensor.factorio_<id>_<planet>_turrets_no_ammo` | turrets without ammo; attributes `total`, `no_power`, `positions` |
 | `sensor.factorio_<id>_<planet>_walls_damaged` | damaged walls and gates; attribute `positions` |
 | `sensor.factorio_<id>_<planet>_evolution` | enemy evolution, % |
+| `sensor.factorio_<id>_<planet>_machines_working` | working machines, %; attributes `total`, `working` |
+| `sensor.factorio_<id>_<planet>_problem_lines` | number of production lines that have been stopped for a while; attribute `lines` (recipe, machine counts, minutes stopped) |
+| `sensor.factorio_<id>_<planet>_drills_depleted` | mining drills that ran out of ore; attribute `by_resource` (`depleted`, `total`) |
 
 Event types: `player_joined`, `player_left`, `player_died`, `attack_started`,
-`attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`.
+`attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`, `line_problem`,
+`line_recovered`, `drills_depleted`.
 
 The planets, defense, evolution, research and AFK/death data need
 factorio-ha-bridge relay and mod 0.2 or newer; with 0.1.x only the 0.1 entities exist.
+
+Problem lines follow a rule set in the integration options (Configure): a line (planet,
+recipe) is a problem when at least `line_problem_share` % of its machines stand (no input,
+output full or no power; default 30, range 10-100) for `line_problem_minutes` minutes of
+game time (default 2, range 1-60). The same wait applies before the problem is cleared, and
+a paused game does not count. Machines, drills and the game clock the rule runs on need
+factorio-ha-bridge relay and mod 0.3 or newer.
 
 Values never turn `unavailable`: when the connection is lost they keep the last
 known value and `game_state` becomes `no_connection`. Removing the integration
@@ -124,9 +135,14 @@ v0.3 (the dashboard as in the mockup):
 - [x] Attacks during a pause say so instead of counting minutes
 - [x] Ukrainian names of the vanilla planets in a Ukrainian interface
 
+Stage 2b (v0.4, needs bridge 0.3):
+
+- [x] Working machines per planet, problem lines (no input / output full / no power) by a rule in game time, depleted drills
+- [x] Events `line_problem`, `line_recovered`, `drills_depleted`
+- [x] Rings of working machines on the map and in the planets card, "line stopped" callouts, a lines and drills lane in the timeline
+
 ### Next
 
-- [ ] 2b: problem lines per planet (no ingredients / output full / no power), mining drills and depleted patches; events `line_problem` / `line_recovered`, `drills_depleted`
 - [ ] 2c: space platforms (where they are, in transit, waiting, losses); events `platform_damaged`, arrived / departed
 - [ ] Dedicated sensors for lines you pick in the options (e.g. iron plates on Nauvis)
 
