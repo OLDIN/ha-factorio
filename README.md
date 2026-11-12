@@ -158,13 +158,13 @@ uv pip install --python .venv-ha/bin/python -r requirements.txt
 (cd frontend && npm ci && npm test)
 ```
 
-**A real Home Assistant to look at the cards.** `scripts/dev_ha_ui.sh up` builds the
-cards, starts Home Assistant from `.venv-ha` with this integration installed from the
-working tree (`ha_config/`, port 8125), onboards it, adds the config entry, the theme and
-the example dashboard, and sets the entities to a scenario. Log in at
-http://127.0.0.1:8125 with the user and password from the script. There is no MQTT
-broker: the entity states come from `scripts/dev_states.py` through the REST API (the
-cards only read states; the MQTT side is covered by pytest).
+**A real Home Assistant to check everything before a release.** `scripts/dev_ha_ui.sh up`
+builds the cards, starts a local MQTT broker (amqtt through `uvx`, on 127.0.0.1:18830) and
+Home Assistant from `.venv-ha` with this integration installed from the working tree
+(`ha_config/`, port 8125), onboards it, adds the MQTT and Factorio entries, the theme and the
+example dashboard, and publishes a scenario the way the relay does
+(`scripts/dev_relay.py`): the whole chain, MQTT to integration to entities to cards. Log in
+at http://127.0.0.1:8125 with the user and password from the script.
 
 ```bash
 scripts/dev_ha_ui.sh scenario running   # paused | running | calm
@@ -172,5 +172,5 @@ scripts/dev_ha_ui.sh rebuild            # after changing the cards; reload the p
 scripts/dev_ha_ui.sh down
 ```
 
-It needs the Home Assistant frontend package in `.venv-ha`; the script prints the command
-that installs the version matching Home Assistant.
+It needs `uvx` and the Home Assistant frontend package in `.venv-ha`; the script prints the
+command that installs the version matching Home Assistant.
