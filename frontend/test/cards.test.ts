@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 
 it("registers every card as a custom element and in the card picker", async () => {
   await import("../src/index");
-  const types = ["factorio-header-card", "factorio-map-card", "factorio-planets-card", "factorio-players-card", "factorio-timeline-card"];
+  const types = ["factorio-header-card", "factorio-map-card", "factorio-planets-card", "factorio-platforms-card", "factorio-players-card", "factorio-timeline-card"];
   for (const type of types) {
     expect(customElements.get(type)).toBeDefined();
     expect(window.customCards?.some((c) => c.type === type)).toBe(true);
@@ -12,6 +12,7 @@ it("registers every card as a custom element and in the card picker", async () =
     "Factorio header",
     "Factorio system map",
     "Factorio planets",
+    "Factorio platforms",
     "Factorio players",
     "Factorio last hour",
   ]);

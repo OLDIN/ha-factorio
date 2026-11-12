@@ -23,6 +23,17 @@ const UK_ACCUSATIVE: Record<string, string> = {
   fulgora: "Фульгору",
 };
 
+/** Ukrainian names after «біля» (the genitive); mod bodies keep their id. */
+const UK_GENITIVE: Record<string, string> = {
+  nauvis: "Наувісу",
+  vulcanus: "Вулканусу",
+  gleba: "Глеби",
+  fulgora: "Фульгори",
+  aquilo: "Аквіло",
+  "solar-system-edge": "краю сонячної системи",
+  "shattered-planet": "розбитої планети",
+};
+
 /** Display name of a space body for `lang`. */
 export function bodyName(name: string, lang: string): string {
   const uk = lang.toLowerCase().split(/[-_]/)[0] === "uk";
@@ -39,4 +50,10 @@ export function researchName(id: string, lang: string): string {
 export function bodyNameAccusative(name: string, lang: string): string {
   const uk = lang.toLowerCase().split(/[-_]/)[0] === "uk";
   return uk && Object.hasOwn(UK_ACCUSATIVE, name) ? UK_ACCUSATIVE[name] : bodyName(name, lang);
+}
+
+/** The name after «біля» (the genitive), for where a platform stands: only Ukrainian vanilla names decline. */
+export function bodyNameNear(name: string, lang: string): string {
+  const uk = lang.toLowerCase().split(/[-_]/)[0] === "uk";
+  return uk && Object.hasOwn(UK_GENITIVE, name) ? UK_GENITIVE[name] : bodyName(name, lang);
 }
