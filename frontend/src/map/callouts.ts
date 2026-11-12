@@ -250,6 +250,35 @@ function crossings(line: Line, placed: Placed[], own: string): number {
   return n;
 }
 
+/** The lead passes through the label box (Liang–Barsky clipping; labels have some empty leading, hence the tolerance). */
+function leadHitsLabel(line: Line, r: Rect): boolean {
+  const x0 = r.x0 + LABEL_TOLERANCE;
+  const x1 = r.x1 - LABEL_TOLERANCE;
+  const y0 = r.y0 + LABEL_TOLERANCE;
+  const y1 = r.y1 - LABEL_TOLERANCE;
+  if (x0 >= x1 || y0 >= y1) return false;
+  const dx = line.x2 - line.x1;
+  const dy = line.y2 - line.y1;
+  let lo = 0;
+  let hi = 1;
+  for (const [p, q] of [
+    [-dx, line.x1 - x0],
+    [dx, x1 - line.x1],
+    [-dy, line.y1 - y0],
+    [dy, y1 - line.y1],
+  ]) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else {
+      const t = q / p;
+      if (p < 0) lo = Math.max(lo, t);
+      else hi = Math.min(hi, t);
+      if (lo > hi) return false;
+    }
+  }
+  return true;
+}
+
 /** Two lead lines cross (touching ends do not count). */
 function leadsCross(a: Line, b: Line): boolean {
   const side = (p: Line, x: number, y: number): number => Math.sign((p.x2 - p.x1) * (y - p.y1) - (p.y2 - p.y1) * (x - p.x1));
@@ -355,7 +384,7 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
         const lo = range.x0;
         const hi = Math.max(range.x0, range.x1 - s.width);
         const preferred = Math.min(Math.max(s.body.cx - s.width / 2, lo), hi);
-        // Tier 2: covers no body or label, its lead crosses no body or lead; 1: covers nothing; 0: anything.
+        // Tier 2: covers no body or label, its lead crosses no body, label or lead; 1: covers nothing; 0: anything.
         const fits = (x: number, tier: number): boolean => {
           const box = { x, y, width: s.width, height: s.height };
           const others = [...result, ...row];
@@ -363,7 +392,11 @@ export function placeCallouts(items: CalloutInput[], placed: Placed[], size: Cal
           if (tier >= 1 && (placed.some((p) => boxHitsBody(box, p)) || labels.some((l) => boxHitsLabel(box, l)))) return false;
           if (tier < 2) return true;
           const line = leadLine(s, x, y);
-          return crossings(line, placed, s.item.body) === 0 && !others.some((c) => leadsCross(line, c.line));
+          return (
+            crossings(line, placed, s.item.body) === 0 &&
+            !labels.some((l) => leadHitsLabel(line, l)) &&
+            !others.some((c) => leadsCross(line, c.line))
+          );
         };
         // A box strays only so far from its body; farther than that, the next row is better.
         const reach = row.length === 0 ? span : Math.min(span, reachOf(s));

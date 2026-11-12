@@ -17,7 +17,7 @@ from homeassistant.helpers.typing import ConfigType
 from .const import CONF_SERVER_ID, DOMAIN, EVENT_TYPES
 from .core import FactorioCore, build_config
 from .entity import server_device_info
-from .frontend import async_register_frontend
+from .frontend import async_register_frontend, async_remove_resource
 from .planets import PlanetTracker
 from .providers import create_provider
 from .providers.base import Provider
@@ -98,8 +98,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: FactorioConfigEntry) ->
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: FactorioConfigEntry) -> None:
-    """Integration removed: clear the retained config so the mod stops collecting."""
+    """Integration removed: clear the retained config so the mod stops collecting.
+
+    With the last server gone, the cards' Lovelace resource goes too.
+    """
     try:
         await create_provider(hass, entry).async_send_config(None)
     except HomeAssistantError as err:
         _LOGGER.warning("Could not clear the Factorio config for %s: %s", entry.data[CONF_SERVER_ID], err)
+    if not [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]:
+        await async_remove_resource(hass)

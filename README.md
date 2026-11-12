@@ -155,4 +155,22 @@ publishes the GitHub Release that HACS installs.
 uv venv --python 3.14 .venv-ha
 uv pip install --python .venv-ha/bin/python -r requirements.txt
 .venv-ha/bin/pytest
+(cd frontend && npm ci && npm test)
 ```
+
+**A real Home Assistant to look at the cards.** `scripts/dev_ha_ui.sh up` builds the
+cards, starts Home Assistant from `.venv-ha` with this integration installed from the
+working tree (`ha_config/`, port 8125), onboards it, adds the config entry, the theme and
+the example dashboard, and sets the entities to a scenario. Log in at
+http://127.0.0.1:8125 with the user and password from the script. There is no MQTT
+broker: the entity states come from `scripts/dev_states.py` through the REST API (the
+cards only read states; the MQTT side is covered by pytest).
+
+```bash
+scripts/dev_ha_ui.sh scenario running   # paused | running | calm
+scripts/dev_ha_ui.sh rebuild            # after changing the cards; reload the page
+scripts/dev_ha_ui.sh down
+```
+
+It needs the Home Assistant frontend package in `.venv-ha`; the script prints the command
+that installs the version matching Home Assistant.
