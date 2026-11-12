@@ -6,7 +6,9 @@ import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass, type HassState } from "../shared/types";
 import { machinesShare, readMachines, TOP_ROWS, type Machines } from "../shared/production";
-import { HAZARD_STRIP, collectAlerts, placeCallouts, type Callout, type CalloutInput } from "./callouts";
+import { HAZARD_STRIP, collectAlerts, formatLosses, placeCallouts, type Callout, type CalloutInput } from "./callouts";
+import { readPlatforms, type PlatformRow } from "../shared/platforms";
+import { placePlatforms, type PlatformsLayout } from "./platforms";
 import { placePopup, type PopupPlace } from "./popup";
 import { mapHeight, type MapCardConfig } from "./config";
 import "./editor";
@@ -81,6 +83,8 @@ interface View {
   /** Everything wrong with a body, as its popup shows it (attacks keep a callout on the map too). */
   problems: ReadonlyMap<string, CalloutInput>;
   sublabels: ReadonlyMap<string, string>;
+  /** Space platforms: diamonds, routes and "+N". */
+  platforms: PlatformsLayout;
   hidden: Set<string>;
   title: string;
   breakdown: string;
@@ -298,7 +302,7 @@ export class FactorioMapCard extends LitElement {
     const breakdown = t(lang, "map_breakdown", { built, unlocked, locked: bodies.length - built - unlocked });
     const header: Rect = { x0: 0, y0: 0, x1: 24 + Math.max(title.length * 13.5, breakdown.length * 6.6) + 16, y1: 80 };
 
-    const items = ["built", "unlocked", "locked", "research", "attack", "machines", "pulse"].map((key) => ({ key, text: t(lang, `legend_${key}`) }));
+    const items = ["built", "unlocked", "locked", "research", "attack", "machines", "pulse", "platform"].map((key) => ({ key, text: t(lang, `legend_${key}`) }));
     const { x: legendX, y: legendY, rect: legendRect } = legendLayout({ width, height }, items.map((i) => i.text));
     const legend = { x: legendX, y: legendY, items };
 
@@ -318,6 +322,26 @@ export class FactorioMapCard extends LitElement {
           ? a
           : { ...a, lines: [...a.lines.slice(0, TOP_ROWS), { text: t(lang, "pl_more", { count: a.lines.length - TOP_ROWS }), tone: "muted" as const }] },
       );
+    // Space platforms; a damaged one keeps a callout too, at the body it stands at or flies to.
+    const platformRows = readPlatforms(hass.states, sid) ?? [];
+    const onMap = new Set(placed.map((p) => p.name));
+    const platformName = (r: PlatformRow): string => t(lang, "pf_name", { name: r.name });
+    for (const r of platformRows) {
+      const anchor = r.location ?? r.route?.to ?? null;
+      if (!r.damage || anchor === null || !onMap.has(anchor)) continue;
+      const losses = formatLosses(r.damage.losses, lang);
+      permanent.push({
+        body: anchor,
+        tone: "warning",
+        title: t(lang, "pf_damaged_title", { name: platformName(r) }),
+        lines: losses ? [{ text: t(lang, "pf_lost", { list: losses }), tone: "text" }] : [],
+      });
+    }
+    const platforms = placePlatforms(platformRows, placed, (r) =>
+      r.route
+        ? `${platformName(r)}: ${bodyName(r.route.from, lang)} → ${bodyName(r.route.to, lang)}`
+        : `${platformName(r)}: ${bodyName(r.location ?? "", lang)}`,
+    );
     const callouts = placeCallouts(permanent, placed, {
       width,
       height,
@@ -327,7 +351,7 @@ export class FactorioMapCard extends LitElement {
       sublabels,
     });
 
-    const facts = alerts.map((a) => [a.title, ...a.lines.map((l) => l.text)].join(", "));
+    const facts = [...alerts, ...permanent.filter((c) => c.tone === "warning")].map((a) => [a.title, ...a.lines.map((l) => l.text)].join(", "));
     for (const [name, progress] of research)
       facts.push(`${bodyName(name, lang)}: ${t(lang, "research_progress", { progress: Math.round(progress) })}`);
     const aria = [`${t(lang, "map_title")}: ${title}`, breakdown, ...facts].join(". ");
@@ -345,6 +369,7 @@ export class FactorioMapCard extends LitElement {
       counts,
       problems: new Map(alerts.map((a) => [a.body, a])),
       sublabels,
+      platforms,
       hidden,
       title,
       breakdown,
@@ -375,9 +400,9 @@ export class FactorioMapCard extends LitElement {
             height=${v.height}
             viewBox="0 0 ${v.width} ${v.height}"
           >
-            ${this._defs()} ${this._backdrop(v)} ${v.callouts.map((c) => this._calloutLine(c))}
+            ${this._defs()} ${this._backdrop(v)} ${this._routes(v)} ${v.callouts.map((c) => this._calloutLine(c))}
             ${v.placed.filter((p) => p.parent === null).map((p) => this._body(v, p))}
-            ${v.placed.filter((p) => p.parent !== null).map((p) => this._body(v, p))}
+            ${v.placed.filter((p) => p.parent !== null).map((p) => this._body(v, p))} ${this._platforms(v)}
             ${v.placed.map((p) => this._label(v, p))} ${v.callouts.map((c) => this._callout(c))} ${this._header(v)}
             ${this._legend(v)} ${popup?.measured && popup.place.line ? this._popupLead(popup.place.line, popup.problem.tone) : nothing}
             ${v.placed.filter((p) => v.problems.has(p.name)).map((p) => this._hit(v, p))}
@@ -537,6 +562,19 @@ export class FactorioMapCard extends LitElement {
     return svg`<g>${parts}</g>`;
   }
 
+  private _routes(v: View): SVGTemplateResult {
+    return svg`${v.platforms.routes.map((r) => svg`<path class="proute" d="M${r.x1} ${r.y1} L${r.x2} ${r.y2}"></path>`)}`;
+  }
+
+  private _platforms(v: View): SVGTemplateResult {
+    const S = 5.5; // half the diamond's diagonal
+    return svg`${v.platforms.diamonds.map(
+      (d) => svg`<path class="platform ${d.tone}" data-platform=${d.index}
+        d="M${d.x} ${d.y - S} L${d.x + S} ${d.y} L${d.x} ${d.y + S} L${d.x - S} ${d.y} Z"><title>${d.title}</title></path>`,
+    )}
+    ${v.platforms.more.map((m) => svg`<text class="pmore" x=${m.x - 4} y=${m.y + 4}>+${m.count}</text>`)}`;
+  }
+
   private _label(v: View, p: Placed): SVGTemplateResult | typeof nothing {
     if (v.hidden.has(p.name)) return nothing;
     const body = v.bodies.get(p.name);
@@ -595,6 +633,8 @@ export class FactorioMapCard extends LitElement {
         case "machines":
           return svg`<circle class="ring" cx=${cx} cy=${cy} r="7" stroke-width="2.5"></circle>
             <path class="machines" d="M${cx} ${cy - 7} A7 7 0 1 1 ${cx - 6.06} ${cy + 3.5}" stroke-width="2.5"></path>`;
+        case "platform":
+          return svg`<path class="legend-platform" d="M${cx} ${cy - 5.5} L${cx + 5.5} ${cy} L${cx} ${cy + 5.5} L${cx - 5.5} ${cy} Z"></path>`;
         case "pulse":
           return svg`<circle class="legend-halo" cx=${cx} cy=${cy} r="7.5"></circle><circle class="legend-amber" cx=${cx} cy=${cy} r="4"></circle>`;
         default:
@@ -744,6 +784,29 @@ export class FactorioMapCard extends LitElement {
       }
       .plead {
         pointer-events: none;
+      }
+      .proute {
+        fill: none;
+        stroke: var(--fha-cyan);
+        stroke-width: 1.2;
+        stroke-dasharray: 4 5;
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      .platform {
+        stroke: var(--fha-bg);
+        stroke-width: 1.5;
+        fill: var(--fha-faint);
+      }
+      .platform.cyan {
+        fill: var(--fha-cyan);
+      }
+      .platform.amber {
+        fill: var(--fha-amber);
+      }
+      .pmore {
+        font-size: 11px;
+        fill: var(--fha-muted);
       }
       .popup {
         position: absolute;
@@ -910,6 +973,9 @@ export class FactorioMapCard extends LitElement {
         fill: var(--fha-muted);
       }
       .legend-amber {
+        fill: var(--fha-amber);
+      }
+      .legend-platform {
         fill: var(--fha-amber);
       }
       .legend-halo {

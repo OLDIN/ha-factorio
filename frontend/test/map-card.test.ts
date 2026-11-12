@@ -181,6 +181,31 @@ describe("factorio-map-card", () => {
     el.remove();
   });
 
+  it("draws the space platforms: diamonds on routes and next to bodies, a callout for the damaged one", async () => {
+    const platforms = [
+      { index: 1, name: "Science", state: "no_schedule", location: "nauvis", route: null, damage: null, lines: [], lines_more: 0 },
+      { index: 2, name: "Hauler 1", state: "on_the_path", location: null, route: { from: "nauvis", to: "aquilo", progress: 0.3 },
+        damage: null, lines: [], lines_more: 0 },
+      { index: 3, name: "Hauler 2", state: "on_the_path", location: null, route: { from: "fulgora", to: "gleba", progress: 0.62 },
+        damage: { active: true, since_tick: 5, losses: { "transport-belt": 2 } }, lines: [], lines_more: 0 },
+      { index: 4, name: "Edge", state: "waiting_for_departure", location: "gleba", route: null, damage: null, lines: [], lines_more: 0 },
+    ];
+    const h = hass({ ...DASHBOARD, "sensor.factorio_main_platforms": { state: "4", attributes: { platforms } } }, "uk");
+    const el = await mount({ server_id: "main" }, h);
+    const root = el.shadowRoot!;
+    expect(root.querySelectorAll("path.platform")).toHaveLength(4);
+    expect(root.querySelectorAll("path.platform.amber")).toHaveLength(1);
+    expect(root.querySelectorAll("path.platform.cyan")).toHaveLength(1);
+    expect(root.querySelectorAll("path.proute")).toHaveLength(2);
+    const warnings = [...root.querySelectorAll("g.callout.warning")];
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].textContent).toContain("«Hauler 2»: пошкоджена");
+    expect(warnings[0].textContent).toContain("втрачено Transport belt");
+    expect(root.querySelector("g.legend")!.textContent).toContain("ромб: платформа, жовтий — пошкоджена");
+    expect(root.querySelector("svg")!.getAttribute("aria-label")).toContain("«Hauler 2»: пошкоджена");
+    el.remove();
+  });
+
   describe("popup", () => {
     const GLEBA_LINES = Array.from({ length: 7 }, (_, i) => ({ recipe: `recipe-${i}`, reason: "no_input", stopped: 5, total: 10, minutes: 3 }));
     const POPUP_STATES = hass({
