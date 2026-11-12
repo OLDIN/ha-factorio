@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-// happy-dom cannot load the Google Fonts stylesheet and logs an error for it; fonts are irrelevant here.
+// happy-dom would try to fetch the font files; fonts are irrelevant here (fontFaceCss is tested directly).
 vi.mock("../src/shared/theme", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/shared/theme")>()),
   ensureFonts: () => {},

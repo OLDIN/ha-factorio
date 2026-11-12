@@ -61,6 +61,7 @@ class GameStateSensor(FactorioEntity, SensorEntity):
 
 
 class PlayersOnlineSensor(FactorioEntity, SensorEntity):
+    _unrecorded_attributes = frozenset({"afk_minutes"})
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, entry: FactorioConfigEntry) -> None:

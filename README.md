@@ -11,7 +11,7 @@ described in its [docs/protocol.md](https://github.com/OLDIN/factorio-ha-bridge/
 Factorio mod ──UDP──▶ relay ──MQTT──▶ this integration
 ```
 
-Status: proof of concept.
+Status: stage 2a (planets, defense, evolution, research, cards).
 
 ## Install
 
@@ -56,7 +56,27 @@ configuration editor, and paste the file. Replace `main` with your server id
 | `binary_sensor.factorio_<id>_game_running` | the game is ticking |
 | `sensor.factorio_<id>_game_state` | `running` / `paused` / `stopped` / `no_connection` (attributes `reason`, `since`) |
 | `sensor.factorio_<id>_players_online` | count; attribute `players` |
-| `event.factorio_<id>_game_events` | `player_joined` / `player_left`; also fired on the bus as `factorio_<event>` |
+| `sensor.factorio_<id>_players_online` | count; attributes `players`, `afk_minutes` |
+| `sensor.factorio_<id>_bodies` | number of built bodies; attribute `bodies` (all space locations, read by the map card) |
+| `sensor.factorio_<id>_research` | current research; attributes `progress` (%), `level`, `queue` (the current research is its first entry), `unlocks` |
+| `sensor.factorio_<id>_recent_events` | time of the newest event; attribute `events` (last 60 minutes, at most 50; read by the timeline card) |
+| `event.factorio_<id>_game_events` | all event types below; also fired on the bus as `factorio_<event>` |
+
+Per planet (a device per planet; entity ids `<platform>.factorio_<id>_<planet>_<key>`),
+appearing when the planet is built or reported by the defense / evolution data:
+
+| Entity | Meaning |
+|---|---|
+| `binary_sensor.factorio_<id>_<planet>_under_attack` | on while an attack runs; attributes `since_tick`, `position`, `gps`, `losses` |
+| `sensor.factorio_<id>_<planet>_turrets_no_ammo` | turrets without ammo; attributes `total`, `no_power`, `positions` |
+| `sensor.factorio_<id>_<planet>_walls_damaged` | damaged walls and gates; attribute `positions` |
+| `sensor.factorio_<id>_<planet>_evolution` | enemy evolution, % |
+
+Event types: `player_joined`, `player_left`, `player_died`, `attack_started`,
+`attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`.
+
+The planets, defense, evolution, research and AFK/death data need
+factorio-ha-bridge relay and mod 0.2 or newer; with 0.1.x only the 0.1 entities exist.
 
 Values never turn `unavailable`: when the connection is lost they keep the last
 known value and `game_state` becomes `no_connection`. Removing the integration
@@ -70,35 +90,31 @@ with notifications or voice announcements. Data is grouped (per planet, per reci
 so a big base gives dozens of entities, not thousands. Everything below is chosen in
 the integration options, and the game collects only what is enabled.
 
-### Done (v0.1, proof of concept)
+### Done
+
+v0.1 (proof of concept):
 
 - [x] Relay ↔ Home Assistant over MQTT, with discovery (`factorio/+/hello`)
 - [x] Game state: running / paused / stopped / no connection
 - [x] Players online (count + names)
-- [x] Events: `player_joined`, `player_left` (event entity + HA bus event)
 - [x] Config from Home Assistant: the game collects nothing until HA asks for it
 - [x] Values never turn `unavailable`; survive relay, game and HA restarts
 
-### Sensors (planned)
+Stage 2a (v0.2, needs bridge 0.2):
 
-- [ ] Machines per planet: % working, grouped by recipe
-- [ ] Problem lines per planet: no ingredients / output full / no power (list in attributes)
+- [x] Planets and other bodies, with a device per built planet
+- [x] Defense per planet: attacks (merged by time and area, with position and losses), turrets without ammo or power, damaged walls
+- [x] Enemy evolution per planet
+- [x] Research: current, progress, queue
+- [x] Players: AFK minutes, deaths
+- [x] Events: `player_joined`, `player_left`, `player_died`, `attack_started`, `attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`
+- [x] Map card and timeline card (fonts are bundled, no third-party requests)
+
+### Next
+
+- [ ] 2b: problem lines per planet (no ingredients / output full / no power), mining drills and depleted patches; events `line_problem` / `line_recovered`, `drills_depleted`
+- [ ] 2c: space platforms (where they are, in transit, waiting, losses); events `platform_damaged`, arrived / departed
 - [ ] Dedicated sensors for lines you pick in the options (e.g. iron plates on Nauvis)
-- [ ] Mining drills: depleted resource patches
-- [ ] Enemy evolution per planet
-- [ ] Research: current, progress, queue
-- [ ] Space platforms: where they are, in transit, waiting, losses
-- [ ] Recent events feed for dashboards
-
-### Events (planned)
-
-- [x] `player_joined` / `player_left`
-- [ ] `player_died`
-- [ ] `research_finished`
-- [ ] `attack_started` / `attack_ended` — merged by time and area, with position and losses
-- [ ] `line_problem` / `line_recovered`
-- [ ] `drills_depleted`
-- [ ] `platform_damaged`, platform arrived / departed
 
 ### Later
 

@@ -392,3 +392,20 @@ async def test_new_names_and_event_types_translated(hass: HomeAssistant, mqtt_mo
     assert {key: tr.get(f"{base}.{key}.name") for key in NAMES[lang]} == NAMES[lang]
     event_types = f"{base}.event.game_events.state_attributes.event_type.state"
     assert [name for name in EVENT_TYPES if not tr.get(f"{event_types}.{name}")] == []
+
+
+async def test_planet_entities_without_planets_category(hass: HomeAssistant, mqtt_mock):
+    """Defense/evolution on, planets off: planet entities come from their by_planet keys."""
+    entry = await setup(hass)
+    assert hass.states.get("binary_sensor.factorio_main_nauvis_under_attack") is None
+    await push(hass, "defense", DEFENSE)
+    for entity_id in planet_ids("nauvis"):
+        assert hass.states.get(entity_id) is not None, entity_id
+    assert hass.states.get("sensor.factorio_main_nauvis_turrets_no_ammo").state == "6"
+    assert hass.states.get("sensor.factorio_main_nauvis_evolution") is None  # no value yet
+    await push(hass, "evolution", {"by_planet": {"nauvis": 0.92, "gleba": 0.5}})
+    assert float(hass.states.get("sensor.factorio_main_nauvis_evolution").state) == 92.0
+    assert float(hass.states.get("sensor.factorio_main_gleba_evolution").state) == 50.0
+    assert device(hass, entry, "main:gleba") is not None
+    await push(hass, "defense", {"by_planet": []})  # Lua empty table: no crash, nothing pruned
+    assert hass.states.get("sensor.factorio_main_nauvis_turrets_no_ammo") is not None

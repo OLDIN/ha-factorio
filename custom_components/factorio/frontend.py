@@ -16,6 +16,8 @@ _LOGGER = logging.getLogger(__name__)
 
 URL = "/factorio_static/factorio-cards.js"
 BUNDLE = Path(__file__).parent / "www" / "factorio-cards.js"
+FONTS_URL = "/factorio_static/fonts"
+FONTS_DIR = Path(__file__).parent / "www" / "fonts"
 _DATA_KEY = f"{DOMAIN}_frontend_registered"
 
 
@@ -31,6 +33,11 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
         )
         return
     integration = await async_get_integration(hass, DOMAIN)
-    await hass.http.async_register_static_paths([StaticPathConfig(URL, str(BUNDLE), cache_headers=False)])
+    paths = [StaticPathConfig(URL, str(BUNDLE), cache_headers=False)]
+    if FONTS_DIR.is_dir():
+        paths.append(StaticPathConfig(FONTS_URL, str(FONTS_DIR), cache_headers=True))
+    else:
+        _LOGGER.warning("Card fonts %s are missing; the cards fall back to system fonts", FONTS_DIR)
+    await hass.http.async_register_static_paths(paths)
     frontend.add_extra_js_url(hass, f"{URL}?v={integration.version}")
     hass.data[_DATA_KEY] = True

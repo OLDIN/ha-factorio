@@ -47,7 +47,7 @@ export interface Rect {
 
 export interface LayoutOptions {
   /** A second label line per body (for example the research progress). */
-  sublabels?: Record<string, string>;
+  sublabels?: ReadonlyMap<string, string>;
   /** Bodies whose labels are not drawn: they take no space. */
   hidden?: ReadonlySet<string>;
   /** Areas bodies and labels keep away from (the summary, the legend). */
@@ -391,7 +391,7 @@ function placeLabels(nodes: Node[], placed: Placed[], size: Size, opts: LayoutOp
   const hidden = opts.hidden ?? new Set<string>();
   const taken: Rect[] = [];
   const rank = (i: number): number =>
-    (opts.sublabels?.[placed[i].name] ? 0 : 4) + (placed[i].parent === null ? 0 : 2) + (nodes[i].body.state === "built" ? 0 : 1);
+    (opts.sublabels?.get(placed[i].name) ? 0 : 4) + (placed[i].parent === null ? 0 : 2) + (nodes[i].body.state === "built" ? 0 : 1);
   const order = placed.map((_, i) => i).sort((a, b) => rank(a) - rank(b) || placed[a].cx - placed[b].cx || a - b);
 
   for (const i of order) {
@@ -402,7 +402,7 @@ function placeLabels(nodes: Node[], placed: Placed[], size: Size, opts: LayoutOp
       p.label = { x: p.cx, y: p.cy + h + 3 + font, anchor: "middle" };
       continue;
     }
-    const sub = opts.sublabels?.[p.name];
+    const sub = opts.sublabels?.get(p.name);
     const probe = labelRect({ ...p, label: { x: 0, y: 0, anchor: "start" } }, sub);
     const below = probe.y1; // block height under the first baseline
     const middle = p.cy - (probe.y1 - probe.y0) / 2 + font;

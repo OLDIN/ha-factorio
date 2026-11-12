@@ -52,7 +52,7 @@ interface View {
   callouts: Callout[];
   attacked: Set<string>;
   research: Map<string, number>;
-  sublabels: Record<string, string>;
+  sublabels: ReadonlyMap<string, string>;
   hidden: Set<string>;
   title: string;
   breakdown: string;
@@ -166,8 +166,8 @@ export class FactorioMapCard extends LitElement {
     const attacked = new Set(alerts.filter((a) => a.tone === "attack").map((a) => a.body));
     const alerting = new Set(alerts.map((a) => a.body));
 
-    const sublabels: Record<string, string> = {};
-    for (const [name, progress] of research) sublabels[name] = t(lang, "research_progress", { progress: Math.round(progress) });
+    const sublabels = new Map<string, string>();
+    for (const [name, progress] of research) sublabels.set(name, t(lang, "research_progress", { progress: Math.round(progress) }));
     const hidden = new Set<string>();
     if (this._config?.label_healthy === false)
       for (const b of bodies) if (!alerting.has(b.name) && !research.has(b.name)) hidden.add(b.name);
@@ -183,7 +183,7 @@ export class FactorioMapCard extends LitElement {
     const { x: legendX, y: legendY, rect: legendRect } = legendLayout({ width, height }, items.map((i) => i.text));
     const legend = { x: legendX, y: legendY, items };
 
-    const key = [width, height, JSON.stringify(sublabels), [...hidden].join(","), Math.round(header.x1), Math.round(legend.x)].join("|");
+    const key = [width, height, JSON.stringify([...sublabels]), [...hidden].join(","), Math.round(header.x1), Math.round(legend.x)].join("|");
     if (!this._layout || this._layout.bodies !== bodiesRaw || this._layout.key !== key)
       this._layout = {
         bodies: bodiesRaw,
@@ -196,7 +196,7 @@ export class FactorioMapCard extends LitElement {
       height,
       top: { x0: header.x1 + 8, x1: width - 16 },
       bottom: { x0: 16, x1: legendRect.x0 - 8 },
-      labels: placed.filter((p) => !hidden.has(p.name)).map((p) => labelRect(p, sublabels[p.name])),
+      labels: placed.filter((p) => !hidden.has(p.name)).map((p) => labelRect(p, sublabels.get(p.name))),
     });
 
     const facts = alerts.map((a) => [a.title, ...a.lines.map((l) => l.text)].join(", "));
@@ -316,7 +316,7 @@ export class FactorioMapCard extends LitElement {
     if (v.hidden.has(p.name)) return nothing;
     const body = v.bodies.get(p.name);
     const font = labelFont(p);
-    const sub = v.sublabels[p.name];
+    const sub = v.sublabels.get(p.name);
     const cls =
       p.parent !== null
         ? "moon"

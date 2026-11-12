@@ -11,7 +11,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
-from .core import FactorioCore
+from .core import FactorioCore, as_dict
 
 type PlanetFactory = Callable[[str], list[Entity]]
 
@@ -57,6 +57,11 @@ class PlanetTracker:
     def _planets(self) -> list[str]:
         """Built planets, plus planets with a registered device that are not known to be gone."""
         planets = list(self._core.built_planets)
+        if self._core.category("planets") is None:
+            # The planets category is off (or not received): defense/evolution still name planets.
+            for category in ("defense", "evolution"):
+                by_planet = as_dict(as_dict(self._core.category(category)).get("by_planet"))
+                planets += [p for p in by_planet if isinstance(p, str) and p not in planets]
         registered = self._registered()
         if self._core.category("planets") is not None:
             names = self._body_names()

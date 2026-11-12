@@ -55,3 +55,30 @@ async def test_component_setup_registers_frontend(http_hass, tmp_path, monkeypat
     monkeypatch.setattr(frontend, "BUNDLE", bundle)
     assert await async_setup_component(http_hass, DOMAIN, {})
     assert len(_version_urls(http_hass)) == 1
+
+
+async def test_fonts_served(http_hass, hass_client, tmp_path, monkeypatch):
+    bundle = tmp_path / "factorio-cards.js"
+    bundle.write_text("//")
+    fonts = tmp_path / "fonts"
+    fonts.mkdir()
+    (fonts / "unbounded-latin-500-normal.woff2").write_bytes(b"wOF2")
+    monkeypatch.setattr(frontend, "BUNDLE", bundle)
+    monkeypatch.setattr(frontend, "FONTS_DIR", fonts)
+
+    await frontend.async_register_frontend(http_hass)
+
+    client = await hass_client()
+    resp = await client.get(f"{frontend.FONTS_URL}/unbounded-latin-500-normal.woff2")
+    assert resp.status == 200
+    assert await resp.read() == b"wOF2"
+
+
+def test_shipped_fonts_cover_every_face():
+    fonts = Path(__file__).parent.parent / "frontend" / "public" / "fonts"  # copied to www/ by the build
+    names = {p.name for p in fonts.glob("*.woff2")}
+    for family, weights in (("unbounded", (500, 600, 700)), ("golos-text", (400, 500, 600))):
+        for weight in weights:
+            for subset in ("latin", "cyrillic"):
+                assert f"{family}-{subset}-{weight}-normal.woff2" in names
+    assert (fonts / "OFL-Unbounded.txt").is_file()

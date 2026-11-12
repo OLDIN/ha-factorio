@@ -123,10 +123,10 @@ jobs:
         run: |
           notes="RELEASE_NOTES_${VERSION}.md"
           if [ -f "$notes" ]; then
-            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes"
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes" factorio.zip
           else
             echo "::warning::$notes not found, using GitHub-generated notes"
-            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes factorio.zip
           fi
           echo "### Released [$TAG](${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
 
