@@ -90,6 +90,13 @@ Event types: `player_joined`, `player_left`, `player_died`, `attack_started`,
 The planets, defense, evolution, research and AFK/death data need
 factorio-ha-bridge relay and mod 0.2 or newer; with 0.1.x only the 0.1 entities exist.
 
+Problem lines follow a rule set in the integration options (Configure): a line (planet,
+recipe) is a problem when at least `line_problem_share` % of its machines stand (no input,
+output full or no power; default 30, range 10-100) for `line_problem_minutes` minutes of
+game time (default 2, range 1-60). The same wait applies before the problem is cleared, and
+a paused game does not count. Machines, drills and the game clock the rule runs on need
+factorio-ha-bridge relay and mod 0.3 or newer.
+
 Values never turn `unavailable`: when the connection is lost they keep the last
 known value and `game_state` becomes `no_connection`. Removing the integration
 clears its config, so the game stops collecting data.
