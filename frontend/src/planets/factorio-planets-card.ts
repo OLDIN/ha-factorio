@@ -6,6 +6,7 @@ import { bodyName } from "../shared/names";
 import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts, panelStyles } from "../shared/theme";
 import type { Hass } from "../shared/types";
+import { machinesShare, TOP_ROWS } from "../shared/production";
 import { planetsModel, type PlanetRow } from "./model";
 
 interface PlanetsCardConfig {
@@ -16,15 +17,27 @@ interface PlanetsCardConfig {
 const EDITOR = "factorio-planets-card-editor";
 defineEditor(EDITOR);
 
-const share = (m: { total: number; working: number }): number => (m.working / m.total) * 100;
 const pct = (n: number): string => `${Math.round(n)}%`;
 
 /** The "Planets" block of the AB-1 dashboard: planets that need attention, then the rest. */
 export class FactorioPlanetsCard extends LitElement {
-  static properties = { hass: { attribute: false }, _config: { state: true } };
+  static properties = { hass: { attribute: false }, _config: { state: true }, _open: { state: true } };
 
   declare hass?: Hass;
   declare _config?: PlanetsCardConfig;
+  /** Planets whose problem list is expanded past the first TOP_ROWS. */
+  declare _open: ReadonlySet<string>;
+
+  constructor() {
+    super();
+    this._open = new Set();
+  }
+
+  private _toggle(name: string): void {
+    const open = new Set(this._open);
+    if (!open.delete(name)) open.add(name);
+    this._open = open;
+  }
 
   private _timer?: ReturnType<typeof setInterval>;
   private _hasAttack = false;
@@ -103,7 +116,7 @@ export class FactorioPlanetsCard extends LitElement {
                       (r) => html`<li>
                         <span class="dot" style="background:${planetColor(r.name)}"></span><span class="nm">${name(r.name)}</span
                         >${r.machines !== null
-                          ? html`<span class="num" title=${t(lang, "pl_machines_share")}>${pct(share(r.machines))}</span>`
+                          ? html`<span class="num" title=${t(lang, "pl_machines_share")}>${pct(machinesShare(r.machines))}</span>`
                           : r.evolution === null
                             ? nothing
                             : html`<span class="num" title=${t(lang, "pl_evolution")}>${pct(r.evolution)}</span>`}
@@ -145,14 +158,25 @@ export class FactorioPlanetsCard extends LitElement {
   private _row(lang: string, r: PlanetRow) {
     return html`<div class="row ${r.tone}">
       ${r.machines
-        ? html`<div class="badge gauge" style="background:conic-gradient(var(--tone) ${pct(share(r.machines))}, var(--fha-line) 0)">
-            <span class="pct">${pct(share(r.machines))}</span>
+        ? html`<div class="badge gauge" style="background:conic-gradient(var(--tone) ${pct(machinesShare(r.machines))}, var(--fha-line) 0)">
+            <span class="pct">${pct(machinesShare(r.machines))}</span>
           </div>`
         : html`<div class="badge"><span class="sphere" style="background-color:${planetColor(r.name)}"></span></div>`}
       <div class="body">
         <span class="name">${bodyName(r.name, lang)}</span>
-        ${r.machines ? html`<span class="machines">${tn(lang, "pl_machines", r.machines.total, { working: r.machines.working })}</span>` : nothing}
-        ${r.lines.map((l) => html`<span class="line ${l.tone}">${l.text}</span>`)}
+        ${r.machines
+          ? html`<span class="machines"
+              >${r.machines.ok === null
+                ? tn(lang, "pl_machines", r.machines.total, { working: r.machines.working })
+                : tn(lang, "pl_machines_ok", r.machines.total, { ok: r.machines.ok })}</span
+            >`
+          : nothing}
+        ${(this._open.has(r.name) ? r.lines : r.lines.slice(0, TOP_ROWS)).map((l) => html`<span class="line ${l.tone}">${l.text}</span>`)}
+        ${r.lines.length > TOP_ROWS
+          ? html`<button class="more" aria-expanded=${this._open.has(r.name) ? "true" : "false"} @click=${() => this._toggle(r.name)}>
+              ${this._open.has(r.name) ? t(lang, "pl_less") : t(lang, "pl_more", { count: r.lines.length - TOP_ROWS })}
+            </button>`
+          : nothing}
       </div>
       <div class="evo">
         ${r.evolution === null ? html`<b class="none">—</b>` : html`<b>${pct(r.evolution)}</b>`}<span>${t(lang, "pl_evolution")}</span>
@@ -238,6 +262,19 @@ export class FactorioPlanetsCard extends LitElement {
       }
       .line {
         font-size: 14px;
+      }
+      .more {
+        align-self: flex-start;
+        padding: 2px 0;
+        border: 0;
+        background: none;
+        color: var(--fha-cyan);
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .more:hover {
+        text-decoration: underline;
       }
       .line.red {
         color: var(--fha-red-soft);
