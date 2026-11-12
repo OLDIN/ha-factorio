@@ -23,11 +23,30 @@ Status: proof of concept.
 4. The server shows up under Settings → Devices & services → Discovered
    (via `factorio/+/hello`), or add "Factorio" manually with the relay's `FHA_SERVER_ID`.
 
-## Dashboard cards
+## Dashboard
 
-The integration ships its own Lovelace cards (one bundle, `factorio-cards.js`). Home
-Assistant loads it automatically, so there is nothing to add under Dashboard resources:
-the cards appear in the card picker as "Factorio ...".
+The cards come with the integration: Home Assistant loads `factorio-cards.js`
+by itself, so there is nothing to add under Dashboard resources. They are
+`custom:factorio-map-card` (`server_id`, `height` 360-1200, `label_healthy`) and
+`custom:factorio-timeline-card` (`server_id`, `window_minutes` 5-60).
+
+**Theme.** Copy [examples/themes/factorio.yaml](examples/themes/factorio.yaml) to
+`/config/themes/factorio.yaml` and make sure `configuration.yaml` has
+
+```yaml
+frontend:
+  themes: !include_dir_merge_named themes
+```
+
+Reload themes (Developer tools → YAML → "Frontend: reload themes", or restart),
+then pick "factorio" in your profile or set `theme: factorio` on a view.
+
+**Example dashboard.** [examples/dashboard.yaml](examples/dashboard.yaml) is a
+sections view: a header (game state, attack, players, research; needs
+[Mushroom](https://github.com/piitaya/lovelace-mushroom) from HACS), the map and
+the timeline. Create a new dashboard, open it, then ⋮ → Edit → ⋮ → Raw
+configuration editor, and paste the file. Replace `main` with your server id
+(`server_id: main` and the `factorio_main_` part of entity ids).
 
 ## Entities
 

@@ -1,0 +1,84 @@
+# Example Factorio dashboard (a "sections" view).
+#
+# Replace `main` with your server id (the relay's FHA_SERVER_ID) in:
+#   - every `server_id: main`
+#   - every entity id `...factorio_main_...`
+# The header uses Mushroom cards (HACS); the map and the timeline come with the
+# integration. Install the theme from examples/themes first (see README).
+title: Factorio
+views:
+  - title: Factorio
+    path: factorio
+    type: sections
+    theme: factorio
+    max_columns: 4
+    sections:
+      # Header: game state, attack, players, research
+      - type: grid
+        column_span: 4
+        cards:
+          - type: custom:mushroom-chips-card
+            alignment: center
+            chips:
+              - type: template
+                entity: sensor.factorio_main_game_state
+                icon: mdi:factory
+                icon_color: >-
+                  {% set s = states('sensor.factorio_main_game_state') %}
+                  {{ 'green' if s == 'running' else 'amber' if s == 'paused' else 'red' }}
+                content: "{{ states('sensor.factorio_main_game_state') | replace('_', ' ') | capitalize }}"
+              # Red when any planet is under attack (all planets' under_attack sensors).
+              - type: template
+                icon: mdi:shield-alert
+                icon_color: >-
+                  {{ 'red' if states.binary_sensor
+                     | selectattr('entity_id', 'match', 'binary_sensor\.factorio_main_.+_under_attack')
+                     | selectattr('state', 'eq', 'on') | list | count > 0 else 'green' }}
+                content: >-
+                  {% set n = states.binary_sensor
+                     | selectattr('entity_id', 'match', 'binary_sensor\.factorio_main_.+_under_attack')
+                     | selectattr('state', 'eq', 'on') | list | count %}
+                  {{ 'Under attack: ' ~ n if n > 0 else 'Quiet' }}
+              - type: template
+                entity: sensor.factorio_main_players_online
+                icon: mdi:account-multiple
+                icon_color: blue
+                content: "{{ states('sensor.factorio_main_players_online') }} online"
+              - type: entity
+                entity: binary_sensor.factorio_main_connection
+                icon_color: green
+          - type: custom:mushroom-template-card
+            entity: sensor.factorio_main_research
+            icon: mdi:flask
+            icon_color: cyan
+            primary: >-
+              {{ states('sensor.factorio_main_research') | replace('-', ' ') | capitalize
+                 if states('sensor.factorio_main_research') not in ['unknown', 'unavailable', 'None']
+                 else 'No research' }}
+            secondary: >-
+              {% set p = state_attr('sensor.factorio_main_research', 'progress') %}
+              {{ (p | string ~ ' %') if p is not none else '' }}
+            badge_icon: mdi:progress-clock
+            grid_options:
+              columns: full
+
+      # Map: full width
+      - type: grid
+        column_span: 4
+        cards:
+          - type: custom:factorio-map-card
+            server_id: main
+            height: 640        # 360-1200
+            label_healthy: true
+            grid_options:
+              columns: full
+
+      # Timeline: full width
+      - type: grid
+        column_span: 4
+        cards:
+          - type: custom:factorio-timeline-card
+            server_id: main
+            window_minutes: 60  # 5-60
+            grid_options:
+              columns: full
