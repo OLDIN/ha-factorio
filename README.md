@@ -11,7 +11,7 @@ described in its [docs/protocol.md](https://github.com/OLDIN/factorio-ha-bridge/
 Factorio mod ──UDP──▶ relay ──MQTT──▶ this integration
 ```
 
-Status: stage 2a (planets, defense, evolution, research) with the dashboard cards.
+Status: stage 2b (production lines and mining drills) on top of 2a (planets, defense, evolution, research), with the dashboard cards.
 
 ## Install
 
@@ -135,9 +135,14 @@ v0.3 (the dashboard as in the mockup):
 - [x] Attacks during a pause say so instead of counting minutes
 - [x] Ukrainian names of the vanilla planets in a Ukrainian interface
 
+Stage 2b (v0.4, needs bridge 0.3):
+
+- [x] Working machines per planet, problem lines (no input / output full / no power) by a rule in game time, depleted drills
+- [x] Events `line_problem`, `line_recovered`, `drills_depleted`
+- [x] Rings of working machines on the map and in the planets card, "line stopped" callouts, a lines and drills lane in the timeline
+
 ### Next
 
-- [ ] 2b: problem lines per planet (no ingredients / output full / no power), mining drills and depleted patches; events `line_problem` / `line_recovered`, `drills_depleted`
 - [ ] 2c: space platforms (where they are, in transit, waiting, losses); events `platform_damaged`, arrived / departed
 - [ ] Dedicated sensors for lines you pick in the options (e.g. iron plates on Nauvis)
 
