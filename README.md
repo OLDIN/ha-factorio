@@ -55,7 +55,6 @@ configuration editor, and paste the file. Replace `main` with your server id
 | `binary_sensor.factorio_<id>_connection` | the relay is online |
 | `binary_sensor.factorio_<id>_game_running` | the game is ticking |
 | `sensor.factorio_<id>_game_state` | `running` / `paused` / `stopped` / `no_connection` (attributes `reason`, `since`) |
-| `sensor.factorio_<id>_players_online` | count; attribute `players` |
 | `sensor.factorio_<id>_players_online` | count; attributes `players`, `afk_minutes` |
 | `sensor.factorio_<id>_bodies` | number of built bodies; attribute `bodies` (all space locations, read by the map card) |
 | `sensor.factorio_<id>_research` | current research; attributes `progress` (%), `level`, `queue` (the current research is its first entry), `unlocks` |
