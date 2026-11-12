@@ -2,7 +2,9 @@
 import { count, formatLosses, frozenKey } from "../map/callouts";
 import type { Body } from "../map/layout";
 import { entityId } from "../shared/entities";
-import { t } from "../shared/i18n";
+import { t, tn } from "../shared/i18n";
+import { prettyName } from "../shared/names";
+import { readDrills, readLines, readMachines, type Machines } from "../shared/production";
 import { asDict, asList, type HassState } from "../shared/types";
 
 export interface PlanetLine {
@@ -14,7 +16,10 @@ export interface PlanetRow {
   name: string;
   /** red: under attack; amber: defense problems; green: nothing to say. */
   tone: "red" | "amber" | "green";
+  /** Defense, problem-line and depleted-drill lines. */
   lines: PlanetLine[];
+  /** Machines working on the planet, null without data. */
+  machines: Machines | null;
   /** Enemy evolution in %, null when unknown. */
   evolution: number | null;
 }
@@ -80,8 +85,16 @@ function rowOf(states: States, sid: string, name: string, lang: string, now: num
   if (noPower > 0) lines.push({ text: t(lang, "turrets_no_power", { count: noPower }), tone: "amber" });
   const walls = count(states[entityId(sid, "sensor", "walls_damaged", name)]?.state);
   if (walls > 0) lines.push({ text: t(lang, "walls_damaged", { count: walls }), tone: "amber" });
+  for (const l of readLines(states, sid, name) ?? []) {
+    const reason = l.reason === "" ? "" : `, ${t(lang, `reason_${l.reason}`)}`;
+    const minutes = l.minutes < 1 ? "<1" : l.minutes;
+    lines.push({ text: t(lang, "pl_line", { recipe: prettyName(l.recipe), stopped: l.stopped, total: l.total, reason, minutes }), tone: "amber" });
+  }
+  for (const d of readDrills(states, sid, name) ?? []) {
+    lines.push({ text: tn(lang, "pl_drills", d.total, { resource: prettyName(d.resource), depleted: d.depleted, total: d.total }), tone: "amber" });
+  }
   const tone = lines.some((l) => l.tone === "red") ? "red" : lines.length > 0 ? "amber" : "green";
-  return { name, tone, lines, evolution: evolutionOf(states, sid, name) };
+  return { name, tone, lines, machines: readMachines(states, sid, name), evolution: evolutionOf(states, sid, name) };
 }
 
 /**
