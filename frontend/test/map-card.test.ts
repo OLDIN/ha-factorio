@@ -59,6 +59,14 @@ describe("factorio-map-card", () => {
     el.remove();
   });
 
+  it("names vanilla bodies in Ukrainian", async () => {
+    const el = await mount({ server_id: "main" }, hass(DASHBOARD, "uk"));
+    const labels = [...el.shadowRoot!.querySelectorAll("text.label")].map((n) => n.textContent);
+    expect(labels).toContain("Наувіс");
+    expect(labels).toContain("Corrundum");
+    el.remove();
+  });
+
   it("draws the attack legend icon with stripes fine enough to read at its size", async () => {
     const el = await mount({ server_id: "main" }, hass(DASHBOARD));
     const root = el.shadowRoot!;
@@ -88,7 +96,7 @@ describe("factorio-map-card", () => {
   it("labels only alerts and research when label_healthy is off", async () => {
     const el = await mount({ server_id: "main", label_healthy: false }, hass(DASHBOARD, "uk"));
     const labels = [...el.shadowRoot!.querySelectorAll("text.label")].map((n) => n.textContent);
-    expect(labels.sort()).toEqual(["Corrundum", "Fulgora", "Maraxsis", "Nauvis"]);
+    expect(labels.sort()).toEqual(["Corrundum", "Maraxsis", "Наувіс", "Фульгора"]);
     expect(el.shadowRoot!.querySelector("svg")!.getAttribute("aria-label")).toContain("21 тіло в системі");
     el.remove();
   });

@@ -3,7 +3,8 @@ import { entityId, slug } from "../shared/entities";
 import { t } from "../shared/i18n";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass } from "../shared/types";
-import { prettyName } from "../map/layout";
+import { bodyName, researchName } from "../shared/names";
+import { parseTime } from "../shared/time";
 import { windowMinutes, type TimelineCardConfig } from "./config";
 import "./editor";
 import { LANES, axisTicks, laneOf, logX, stackPills, type Lane } from "./scale";
@@ -29,19 +30,13 @@ interface Pill {
 
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
-/** Epoch ms of an event time; the sensor sends UTC, so a timestamp without Z or an offset is UTC; NaN if unusable. */
-export function parseTime(value: unknown): number {
-  if (typeof value !== "string") return NaN;
-  const text = value.trim();
-  const naive = /^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(text);
-  return Date.parse(naive ? `${text.replace(" ", "T")}Z` : text);
-}
+export { parseTime };
 
 /** Width of a pill in px: text plus the marker and the padding (an estimate; used for stacking only). */
 const pillWidth = (text: string): number => Math.ceil(text.length * 6.9 + 34);
 
 export function eventText(lang: string, event: string, data: Record<string, unknown>): string | null {
-  const planet = prettyName(str(data.planet));
+  const planet = bodyName(str(data.planet), lang);
   const player = str(data.player);
   switch (event) {
     case "attack_started":
@@ -53,7 +48,7 @@ export function eventText(lang: string, event: string, data: Record<string, unkn
     case "turrets_ok":
       return t(lang, "tl_ammo_ok", { planet });
     case "research_finished": {
-      const name = prettyName(str(data.name));
+      const name = researchName(str(data.name), lang);
       const level = Number(data.level);
       return level > 1 ? t(lang, "tl_research_level", { name, level }) : t(lang, "tl_research", { name });
     }
@@ -277,11 +272,11 @@ export class FactorioTimelineCard extends LitElement {
       ha-card {
         display: block;
         overflow: hidden;
-        background: var(--fha-bg);
+        background: var(--fha-panel);
         border: 1px solid var(--fha-line);
         border-radius: var(--ha-card-border-radius, 16px);
         color: var(--fha-text);
-        padding: 18px 22px 14px;
+        padding: 20px 22px 14px;
       }
       .head {
         display: flex;
@@ -299,7 +294,7 @@ export class FactorioTimelineCard extends LitElement {
       }
       h2 {
         margin: 0;
-        font: 600 22px "Unbounded", system-ui, sans-serif;
+        font: 600 19px "Unbounded", system-ui, sans-serif;
       }
       .hint {
         font-size: 13px;

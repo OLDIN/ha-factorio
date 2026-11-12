@@ -26,9 +26,50 @@ export const cardStyles = css`
     --fha-sun-mid: #ffc35f;
     --fha-sun-edge: #e9862c;
     --fha-sun-glow: #ffb347;
+    --fha-chip: #10213f;
+    --fha-dash: #2f4c7d;
+    --fha-green-soft: #6fdca2;
+    --fha-green-bg: #10301f;
+    --fha-red-chip: #3a1620;
+    --fha-amber-chip: #33270f;
     display: block;
     color: var(--fha-text);
     font-family: "Golos Text", system-ui, sans-serif;
+  }
+`;
+
+/** A panel card of the AB-1 dashboard (planets, players, last hour): rounded box, title row. */
+export const panelStyles = css`
+  ha-card {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    box-sizing: border-box;
+    height: 100%;
+    overflow: hidden;
+    background: var(--fha-panel);
+    border: 1px solid var(--fha-line);
+    border-radius: var(--ha-card-border-radius, 16px);
+    color: var(--fha-text);
+    padding: 20px 22px;
+  }
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 16px;
+  }
+  h2 {
+    margin: 0;
+    font: 600 19px "Unbounded", system-ui, sans-serif;
+  }
+  .hint {
+    font-size: 13px;
+    color: var(--fha-muted);
+  }
+  .message {
+    color: var(--fha-muted);
   }
 `;
 

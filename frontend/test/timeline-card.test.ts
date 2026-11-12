@@ -21,13 +21,14 @@ describe("buildPills", () => {
     expect(pills.map((p) => [p.lane, p.text])).toEqual([
       ["attacks", "Nauvis"],
       ["defense", "Nauvis: 6 without ammo"],
-      ["players_science", "Planet discovery gleba 2"],
+      ["players_science", "Planet discovery: Gleba 2"],
       ["players_science", "alice joined"],
     ]);
     expect(pills[0].x).toBeCloseTo(0.733, 3);
   });
   it("translates", () => {
     expect(buildPills(EVENTS, "uk", 60, NOW)[3].text).toBe("alice зайшов");
+    expect(buildPills(EVENTS, "uk", 60, NOW)[1].text).toBe("Наувіс: 6 без набоїв");
   });
   it("tolerates empty lists and dicts", () => {
     expect(buildPills([], "en", 60, NOW)).toEqual([]);

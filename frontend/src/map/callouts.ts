@@ -4,6 +4,7 @@
  */
 import { entityId } from "../shared/entities";
 import { t } from "../shared/i18n";
+import { bodyName } from "../shared/names";
 import { asDict, asList, type HassState } from "../shared/types";
 import { labelRect, prettyName, type Body, type Placed, type Rect } from "./layout";
 
@@ -74,22 +75,28 @@ const FROZEN: Record<string, string | undefined> = {
   no_connection: "game_no_connection",
 };
 
+/** The i18n key of the game state when the game does not tick (paused, stopped, offline), else undefined. */
+export function frozenKey(states: Record<string, HassState | undefined>, serverId: string): string | undefined {
+  return FROZEN[states[entityId(serverId, "sensor", "game_state")]?.state ?? ""];
+}
+
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 /** A non-negative whole count from a state or attribute; anything else (unknown, unavailable) is 0. */
-function count(value: unknown): number {
+export function count(value: unknown): number {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
 }
 
 /** "Stone wall ×12, Gun turret ×4, +3 more": the biggest losses first, plural-free in every language. */
-function formatLosses(losses: unknown, lang: string): string {
+export function formatLosses(losses: unknown, lang: string): string {
   const entries = Object.entries(asDict(losses))
     .map(([name, n]) => [name, count(n)] as const)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   if (entries.length === 0) return "";
-  const shown = entries.slice(0, 3).map(([name, n]) => `${prettyName(name)} ×${n}`);
+  // A no-break space keeps the count with its item when the line wraps.
+  const shown = entries.slice(0, 3).map(([name, n]) => `${prettyName(name)}\u00a0×${n}`);
   const rest = entries.slice(3).reduce((sum, [, n]) => sum + n, 0);
   if (rest > 0) shown.push(t(lang, "attack_more", { count: rest }));
   return shown.join(", ");
@@ -109,11 +116,11 @@ export function collectAlerts(
 ): CalloutInput[] {
   const out: CalloutInput[] = [];
   const seen = new Set<string>();
-  const frozen = FROZEN[states[entityId(serverId, "sensor", "game_state")]?.state ?? ""];
+  const frozen = frozenKey(states, serverId);
   for (const body of bodies) {
     if (!body || typeof body.name !== "string" || seen.has(body.name)) continue;
     seen.add(body.name);
-    const planet = prettyName(body.name);
+    const planet = bodyName(body.name, lang);
     const problems: string[] = [];
     const turrets = states[entityId(serverId, "sensor", "turrets_no_ammo", body.name)];
     const noAmmo = count(turrets?.state);
@@ -172,7 +179,8 @@ interface Sized {
 export function wrapText(text: string, chars: number, max: number): string[] {
   const out: string[] = [];
   let line = "";
-  for (const word of text.split(/\s+/).filter((w) => w !== "")) {
+  // Only ordinary spaces break: no-break spaces hold their words together.
+  for (const word of text.split(/[ \t\n]+/).filter((w) => w !== "")) {
     if (line === "") line = word;
     else if (line.length + 1 + word.length <= chars) line += ` ${word}`;
     else {

@@ -1,6 +1,7 @@
 import { LitElement, css, html, nothing, svg, type PropertyValues, type SVGTemplateResult } from "lit";
 import { entityId, slug } from "../shared/entities";
 import { t, tn } from "../shared/i18n";
+import { bodyName } from "../shared/names";
 import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass, type HassState } from "../shared/types";
@@ -13,7 +14,6 @@ import {
   labelRect,
   layoutBodies,
   legendLayout,
-  prettyName,
   sunGeometry,
   type Body,
   type Placed,
@@ -183,12 +183,12 @@ export class FactorioMapCard extends LitElement {
     const { x: legendX, y: legendY, rect: legendRect } = legendLayout({ width, height }, items.map((i) => i.text));
     const legend = { x: legendX, y: legendY, items };
 
-    const key = [width, height, JSON.stringify([...sublabels]), [...hidden].join(","), Math.round(header.x1), Math.round(legend.x)].join("|");
+    const key = [lang, width, height, JSON.stringify([...sublabels]), [...hidden].join(","), Math.round(header.x1), Math.round(legend.x)].join("|");
     if (!this._layout || this._layout.bodies !== bodiesRaw || this._layout.key !== key)
       this._layout = {
         bodies: bodiesRaw,
         key,
-        placed: layoutBodies(bodies, { width, height }, { sublabels, hidden, obstacles: [header, legendRect] }),
+        placed: layoutBodies(bodies, { width, height }, { sublabels, hidden, obstacles: [header, legendRect], title: (name) => bodyName(name, lang) }),
       };
     const placed = this._layout.placed;
     const callouts = placeCallouts(alerts, placed, {
@@ -201,7 +201,7 @@ export class FactorioMapCard extends LitElement {
 
     const facts = alerts.map((a) => [a.title, ...a.lines.map((l) => l.text)].join(", "));
     for (const [name, progress] of research)
-      facts.push(`${prettyName(name)}: ${t(lang, "research_progress", { progress: Math.round(progress) })}`);
+      facts.push(`${bodyName(name, lang)}: ${t(lang, "research_progress", { progress: Math.round(progress) })}`);
     const aria = [`${t(lang, "map_title")}: ${title}`, breakdown, ...facts].join(". ");
 
     return {
@@ -330,7 +330,7 @@ export class FactorioMapCard extends LitElement {
             : body?.state === "built"
               ? "built"
               : "dim";
-    return svg`<text class="label ${cls}" x=${p.label.x} y=${p.label.y} text-anchor=${p.label.anchor} font-size=${font}>${prettyName(p.name)}</text>
+    return svg`<text class="label ${cls}" x=${p.label.x} y=${p.label.y} text-anchor=${p.label.anchor} font-size=${font}>${p.title ?? bodyName(p.name, v.lang)}</text>
       ${sub === undefined ? nothing : svg`<text class="sublabel" x=${p.label.x} y=${p.label.y + font + 3} text-anchor=${p.label.anchor} font-size=${font - 1}>${sub}</text>`}`;
   }
 

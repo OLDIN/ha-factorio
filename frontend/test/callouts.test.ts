@@ -197,6 +197,19 @@ describe("placeCallouts", () => {
     expect(c.y + c.height).toBeGreaterThan(c.baselines[c.baselines.length - 1]);
   });
 
+  it("never wraps a count away from its item", () => {
+    const attack: HassState = {
+      state: "on",
+      last_changed: new Date(NOW - 4 * 60_000).toISOString(),
+      // "Втрачено: Gun turret ×7, Medium electric pole ×7, …": the line is full right before the second "×7,".
+      attributes: { losses: { "gun-turret": 7, "medium-electric-pole": 7, "bulk-inserter": 6, "rocket-turret": 4, "requester-chest": 2, substation: 1 } },
+    };
+    const alerts = collectAlerts({ "binary_sensor.factorio_main_gleba_under_attack": attack }, "main", BODIES, "uk", NOW);
+    const [c] = placeCallouts(alerts, PLACED, SIZE);
+    expect(c.lines.length).toBeGreaterThanOrEqual(2);
+    for (const l of c.lines) expect(l.text.startsWith("×"), l.text).toBe(false);
+  });
+
   it("ignores items for unknown bodies", () => {
     expect(placeCallouts([warningInput("nowhere")], PLACED, SIZE)).toEqual([]);
   });
@@ -230,8 +243,8 @@ describe("collectAlerts", () => {
     expect(a.tone).toBe("attack");
     expect(a.title).toBe("Attack on Nauvis: 2 min");
     const text = a.lines.map((l) => l.text).join(" | ");
-    expect(text).toContain("Stone wall ×12");
-    expect(text).toContain("Gun turret ×4");
+    expect(text).toContain("Stone wall\u00a0×12");
+    expect(text).toContain("Gun turret\u00a0×4");
     expect(text).toContain("+1");
     expect(text).toContain("-412, 1180");
     expect(a.lines.some((l) => l.tone === "amber" && l.text.includes("3"))).toBe(true);
@@ -256,7 +269,7 @@ describe("collectAlerts", () => {
     ]);
     expect(alerts[0].lines[0].text).toContain("6");
     expect(alerts[1].lines[0].text).toContain("12");
-    expect(alerts[0].title).toContain("Fulgora");
+    expect(alerts[0].title).toBe("Фульгора: оборона");
   });
 
   it("shows nothing when the entities are missing or unknown", () => {
@@ -285,7 +298,7 @@ describe("collectAlerts", () => {
         lang,
         NOW,
       )[0].title;
-    expect(run("uk", paused)).toBe("Nauvis: напад, гра на паузі");
+    expect(run("uk", paused)).toBe("Наувіс: напад, гра на паузі");
     expect(run("en", paused)).toBe("Attack on Nauvis, game paused");
     expect(run("en", { ...paused, state: "no_connection" })).toBe("Attack on Nauvis, no connection");
     expect(run("en", { ...paused, state: "stopped" })).toBe("Attack on Nauvis, game stopped");
