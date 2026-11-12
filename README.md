@@ -23,6 +23,12 @@ Status: proof of concept.
 4. The server shows up under Settings → Devices & services → Discovered
    (via `factorio/+/hello`), or add "Factorio" manually with the relay's `FHA_SERVER_ID`.
 
+## Dashboard cards
+
+The integration ships its own Lovelace cards (one bundle, `factorio-cards.js`). Home
+Assistant loads it automatically, so there is nothing to add under Dashboard resources:
+the cards appear in the card picker as "Factorio ...".
+
 ## Entities
 
 | Entity | Meaning |

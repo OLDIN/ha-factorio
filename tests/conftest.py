@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL, UrlManager
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
@@ -23,6 +24,16 @@ async def mqtt_mock(hass, mqtt_mock):
     # Let MQTT's debounced (un)subscribe cooldown timers fire.
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
     await hass.async_block_till_done()
+
+
+@pytest.fixture(autouse=True)
+def stub_frontend(hass):
+    """Stand-in for the `frontend` dependency: the real one needs the hass_frontend wheel.
+
+    Keeps the one piece the integration touches: the extra-module URL registry.
+    """
+    hass.config.components.add("frontend")
+    hass.data[DATA_EXTRA_MODULE_URL] = UrlManager(lambda *_: None, [])
 
 
 class FakeProvider(Provider):

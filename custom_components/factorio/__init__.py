@@ -10,17 +10,21 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.typing import ConfigType
 
 from .const import CONF_SERVER_ID, DOMAIN, EVENT_TYPES
 from .core import FactorioCore, build_config
 from .entity import server_device_info
+from .frontend import async_register_frontend
 from .planets import PlanetTracker
 from .providers import create_provider
 from .providers.base import Provider
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.EVENT]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 @dataclass
@@ -32,6 +36,11 @@ class FactorioRuntime:
 
 
 type FactorioConfigEntry = ConfigEntry[FactorioRuntime]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    await async_register_frontend(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FactorioConfigEntry) -> bool:
