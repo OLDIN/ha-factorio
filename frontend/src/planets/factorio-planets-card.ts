@@ -145,7 +145,7 @@ export class FactorioPlanetsCard extends LitElement {
   private _row(lang: string, r: PlanetRow) {
     return html`<div class="row ${r.tone}">
       ${r.machines
-        ? html`<div class="badge ring" style="background:conic-gradient(var(--tone) ${pct(share(r.machines))}, var(--fha-line) 0)">
+        ? html`<div class="badge gauge" style="background:conic-gradient(var(--tone) ${pct(share(r.machines))}, var(--fha-line) 0)">
             <span class="pct">${pct(share(r.machines))}</span>
           </div>`
         : html`<div class="badge"><span class="sphere" style="background-color:${planetColor(r.name)}"></span></div>`}
@@ -201,11 +201,11 @@ export class FactorioPlanetsCard extends LitElement {
         justify-content: center;
       }
       /* Stage 2b: the ring is the share of working machines, the number sits in the middle. */
-      .badge.ring {
+      .badge.gauge {
         border: none;
         position: relative;
       }
-      .badge.ring::before {
+      .badge.gauge::before {
         content: "";
         position: absolute;
         inset: 5px;

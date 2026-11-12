@@ -168,7 +168,9 @@ describe("factorio-planets-card", () => {
     const root = el.shadowRoot!;
     const row = [...root.querySelectorAll(".row")].find((r) => r.querySelector(".name")?.textContent === "Фульгора")!;
     expect(row.classList.contains("amber")).toBe(true);
-    const ring = row.querySelector(".badge") as HTMLElement;
+    const ring = row.querySelector(".badge.gauge") as HTMLElement;
+    // A full-size badge, not the 9 px `.ring` marker of the locked list (class names must not clash).
+    expect(ring.classList.contains("ring")).toBe(false);
     expect(ring.style.background).toContain("conic-gradient");
     expect(ring.style.background).toContain("88%");
     expect(row.querySelector(".pct")?.textContent).toBe("88%");
