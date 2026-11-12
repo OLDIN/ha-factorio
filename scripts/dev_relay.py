@@ -6,7 +6,8 @@ events), calm (nothing wrong). availability, hello, state and data/* are retaine
 and the game clock are not, as with the real relay. Values are what the mod sends: evolution
 and research progress are fractions, the integration turns them into percent.
 
-paused and running carry six lines without input on Fulgora, a mall with full outputs on
+paused and running carry six space platforms (one damaged, with a line on board),
+six lines without input on Fulgora, a mall with full outputs on
 Nauvis (a problem only with the output_full option on) and depleted iron drills on Nauvis.
 data/machines goes out once with tick TICK; then, while the game runs (running, calm), the
 clock topic moves to TICK + CLOCK_AHEAD, as relay heartbeats would: two game minutes later
@@ -97,6 +98,31 @@ def retained(name: str, sid: str) -> dict[str, object]:
         "gleba": machines_of(220, [], no_input=6, output_full=10),
         "fulgora": machines_of(441, fulgora_lines, no_input=71),
     }
+    # Space platforms as in the mockup (2c). Hauler 2 is damaged and has a thruster-fuel line
+    # without input (a problem after two minutes of the clock); calm has neither.
+    def ship(index: int, name: str, state: str, location: str | None = None, route=None, damage=None) -> dict:
+        entry = {"index": index, "name": name, "state": state}
+        if location:
+            entry["location"] = location
+        if route:
+            entry["route"] = {"from": route[0], "to": route[1], "progress": route[2]}
+        if damage and not calm:
+            entry["damage"] = damage
+        return entry
+
+    platforms = [
+        ship(1, "Science", "no_schedule", location="nauvis"),
+        ship(2, "Hauler 1", "on_the_path", route=("nauvis", "aquilo", 0.3)),
+        ship(3, "Hauler 2", "on_the_path", route=("fulgora", "gleba", 0.62),
+             damage={"active": True, "since_tick": TICK - 600, "losses": {"transport-belt": 2}}),
+        ship(4, "Edge", "waiting_for_departure", location="gleba"),
+        ship(5, "Cryo", "paused", location="aquilo"),
+        ship(6, "Ore run", "on_the_path", route=("vulcanus", "nauvis", 0.35)),
+    ]
+    by_platform = {} if calm else {
+        "3": {"name": "Hauler 2", "total": 40, "working": 34, "no_input": 6, "output_full": 0, "no_power": 0,
+              "groups": [group("thruster-fuel", 10, 4, no_input=6)]},
+    }
     iron = {"total": 96, "working": 96 if calm else 80, "depleted": 0 if calm else 14, "stuck": 0 if calm else 2}
     drills = {
         "nauvis": {"total": 140, "working": 140 if calm else 124,
@@ -124,7 +150,8 @@ def retained(name: str, sid: str) -> dict[str, object]:
         "data/evolution": data({"by_planet": evolution}),
         "data/defense": data({"by_planet": defense}),
         "data/players": data({"online": players, "afk_minutes": {"guest": 4} if running else {}}),
-        "data/machines": data({"by_planet": machines}),
+        "data/machines": data({"by_planet": machines, "by_platform": by_platform}),
+        "data/platforms": data({"list": platforms}),
         "data/drills": data({"by_planet": drills}),
     }
 
@@ -141,8 +168,11 @@ def events(name: str) -> list[dict]:
         (8, "turrets_no_ammo", {"planet": "gleba", "count": 14}),
         (6, "player_died", {"player": "guest", "planet": "gleba", "surface": "gleba"}),
         (4, "attack_started", {"planet": "gleba", "surface": "gleba", "position": [122, -259], "gps": "[gps=122,-259,gleba]"}),
+        (22, "platform_departed", {"index": 3, "name": "Hauler 2", "from": "fulgora", "to": "gleba"}),
+        (12, "platform_arrived", {"index": 4, "name": "Edge", "location": "gleba"}),
+        (7, "platform_damaged", {"index": 3, "name": "Hauler 2", "losses": {"transport-belt": 2}, "duration_s": 14}),
     ]
-    return [{"v": 1, "event": event, "tick": TICK, "time": iso(minutes), "data": payload} for minutes, event, payload in items]
+    return [{"v": 1, "event": event, "tick": TICK, "time": iso(minutes), "data": payload} for minutes, event, payload in sorted(items, key=lambda item: -item[0])]
 
 
 def main() -> None:
