@@ -62,12 +62,20 @@ describe("factorio-timeline-card", () => {
     expect(root.querySelector('[data-lane="attacks"] .pill')?.textContent).toContain("Nauvis");
     expect(root.querySelector('[data-lane="players_science"] .pill')?.textContent).toContain("alice joined");
     const chips = [...root.querySelectorAll<HTMLButtonElement>("button.chip")];
-    expect(chips).toHaveLength(4);
+    expect(chips).toHaveLength(5);
     expect(chips[0].getAttribute("aria-pressed")).toBe("true");
     chips[1].click();
     await el.updateComplete;
     expect(root.querySelectorAll(".lane")).toHaveLength(1);
     expect(root.querySelector("button.chip[aria-pressed=true]")).toBe(chips[1]);
+    el.remove();
+  });
+
+  it("has a filter button for the lines and drills lane", async () => {
+    const el = await mount(hass([], "uk"));
+    const labels = [...el.shadowRoot!.querySelectorAll<HTMLButtonElement>("button.chip")].map((b) => b.textContent?.trim());
+    expect(labels).toContain("Лінії й бури");
+    expect(labels.indexOf("Лінії й бури")).toBe(labels.indexOf("Оборона") + 1);
     el.remove();
   });
 
@@ -86,6 +94,29 @@ describe("factorio-timeline-card", () => {
   it("finds the server for a new card", async () => {
     const ctor = customElements.get("factorio-timeline-card") as unknown as { getStubConfig(h: Hass): { server_id: string } };
     expect(ctor.getStubConfig(hass([])).server_id).toBe("main");
+  });
+});
+
+describe("lines and drills lane", () => {
+  const LINES = [
+    { event: "line_problem", time: ago(4), data: { planet: "fulgora", recipe: "scrap-recycling", reason: "output_full", stopped: 31, total: 48 } },
+    { event: "line_recovered", time: ago(3), data: { planet: "fulgora", recipe: "scrap-recycling" } },
+    { event: "drills_depleted", time: ago(2), data: { planet: "nauvis", resource: "iron-ore", depleted: 14, total: 96 } },
+  ];
+  it("puts line and drill events on the lines lane with uk texts", () => {
+    const pills = buildPills(LINES, "uk", 60, NOW);
+    expect(pills.map((p) => [p.lane, p.text, p.tone, p.resolved])).toEqual([
+      ["lines", "Фульгора: Scrap recycling", "amber", false],
+      ["lines", "Фульгора: Scrap recycling працює", "green", true],
+      ["lines", "Наувіс, бури: Iron ore", "amber", false],
+    ]);
+  });
+  it("translates to en", () => {
+    expect(buildPills(LINES, "en", 60, NOW).map((p) => p.text)).toEqual([
+      "Fulgora: Scrap recycling",
+      "Fulgora: Scrap recycling running",
+      "Nauvis, drills: Iron ore",
+    ]);
   });
 });
 

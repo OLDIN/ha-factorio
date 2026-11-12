@@ -3,7 +3,7 @@ import { entityId, slug } from "../shared/entities";
 import { t } from "../shared/i18n";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass } from "../shared/types";
-import { bodyName, researchName } from "../shared/names";
+import { bodyName, prettyName, researchName } from "../shared/names";
 import { parseTime } from "../shared/time";
 import { windowMinutes, type TimelineCardConfig } from "./config";
 import "./editor";
@@ -47,6 +47,12 @@ export function eventText(lang: string, event: string, data: Record<string, unkn
       return t(lang, "tl_no_ammo", { planet, count: Number(data.count) || 0 });
     case "turrets_ok":
       return t(lang, "tl_ammo_ok", { planet });
+    case "line_problem":
+      return t(lang, "tl_line_problem", { planet, recipe: prettyName(str(data.recipe)) });
+    case "line_recovered":
+      return t(lang, "tl_line_recovered", { planet, recipe: prettyName(str(data.recipe)) });
+    case "drills_depleted":
+      return t(lang, "tl_drills_depleted", { planet, resource: prettyName(str(data.resource)) });
     case "research_finished": {
       const name = researchName(str(data.name), lang);
       const level = Number(data.level);
@@ -68,6 +74,9 @@ const TONES: Record<string, { tone: Pill["tone"]; resolved: boolean }> = {
   attack_ended: { tone: "red", resolved: true },
   turrets_no_ammo: { tone: "amber", resolved: false },
   turrets_ok: { tone: "green", resolved: true },
+  line_problem: { tone: "amber", resolved: false },
+  line_recovered: { tone: "green", resolved: true },
+  drills_depleted: { tone: "amber", resolved: false },
 };
 
 /** Events of the last `windowMin` minutes as pills (unknown events and bad timestamps are skipped). */
@@ -383,7 +392,7 @@ export class FactorioTimelineCard extends LitElement {
         --tone: var(--fha-cyan-soft);
         --mark: var(--fha-cyan);
       }
-      /* Second channel besides colour: the marker shape tells the lane (triangle, diamond, dot). */
+      /* Second channel besides colour: the marker shape tells the lane (triangle, diamond, square, dot). */
       .mark {
         flex: none;
         width: 9px;
@@ -398,6 +407,10 @@ export class FactorioTimelineCard extends LitElement {
       .pill.defense .mark {
         border-radius: 1px;
         transform: rotate(45deg) scale(0.85);
+      }
+      .pill.lines .mark {
+        border-radius: 1px;
+        transform: scale(0.85);
       }
       .pill.resolved .mark {
         background: transparent;

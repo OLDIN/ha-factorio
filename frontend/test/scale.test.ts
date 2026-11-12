@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTicks, laneOf, logX, stackPills } from "../src/timeline/scale";
+import { LANES, axisTicks, laneOf, logX, stackPills } from "../src/timeline/scale";
 
 describe("logX", () => {
   it("gives recent events more room", () => {
@@ -28,10 +28,19 @@ describe("laneOf", () => {
     expect(laneOf("player_joined")).toBe("players_science");
     expect(laneOf("player_died")).toBe("players_science");
     expect(laneOf("research_finished")).toBe("players_science");
+    expect(laneOf("line_problem")).toBe("lines");
+    expect(laneOf("line_recovered")).toBe("lines");
+    expect(laneOf("drills_depleted")).toBe("lines");
   });
   it("returns null for unknown events", () => {
     expect(laneOf("unknown")).toBeNull();
     expect(laneOf("")).toBeNull();
+  });
+});
+
+describe("LANES", () => {
+  it("orders attacks, defense, lines and drills, players and science", () => {
+    expect(LANES).toEqual(["attacks", "defense", "lines", "players_science"]);
   });
 });
 
