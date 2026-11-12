@@ -51,8 +51,19 @@ describe("factorio-map-card", () => {
     expect(aria).toContain("12 damaged walls");
     expect(aria).toContain("Maraxsis: researching 62%");
     expect(root.querySelectorAll("circle.body")).toHaveLength(21);
-    expect(root.querySelectorAll("g.callout")).toHaveLength(3);
+    // Only the attack keeps a callout; turrets and walls are in the popups (and the summary above).
+    expect(root.querySelectorAll("g.callout")).toHaveLength(1);
     expect(root.querySelectorAll("g.callout.attack")).toHaveLength(1);
+    expect([...root.querySelectorAll("circle.pulse")].map((c) => `${c.getAttribute("data-body")}:${c.classList[1]}`).sort()).toEqual([
+      "corrundum:amber",
+      "fulgora:amber",
+      "nauvis:red",
+    ]);
+    expect([...root.querySelectorAll("g.count")].map((g) => `${g.getAttribute("data-body")}:${g.textContent!.trim()}`).sort()).toEqual([
+      "corrundum:1",
+      "fulgora:1",
+    ]);
+    expect([...root.querySelectorAll("circle.hit")].map((c) => c.getAttribute("data-body")).sort()).toEqual(["corrundum", "fulgora", "nauvis"]);
     expect(root.querySelectorAll("circle.research")).toHaveLength(1);
     expect(root.querySelectorAll("circle.hazard")).toHaveLength(1);
     expect(root.querySelectorAll("text.label")).toHaveLength(21);
@@ -110,7 +121,7 @@ describe("factorio-map-card", () => {
     el2.remove();
   });
 
-  it("shows a line-stopped callout for a planet with only a problem line, and the ring legend", async () => {
+  it("makes a planet with only a problem line pulse with a count badge, without a callout; the ring and pulse legend", async () => {
     const h = hass({
       ...DASHBOARD,
       "sensor.factorio_main_gleba_problem_lines": {
@@ -120,16 +131,150 @@ describe("factorio-map-card", () => {
     });
     const el = await mount({ server_id: "main" }, h);
     const root = el.shadowRoot!;
-    expect(root.querySelectorAll("g.callout")).toHaveLength(4);
+    expect(root.querySelectorAll("g.callout")).toHaveLength(1);
+    expect(root.querySelector('circle.pulse.amber[data-body="gleba"]')).not.toBeNull();
+    expect(root.querySelector('g.count[data-body="gleba"]')!.textContent!.trim()).toBe("1");
     const aria = root.querySelector("svg")!.getAttribute("aria-label")!;
     expect(aria).toContain("Gleba: line stopped");
     expect(aria).toContain("Scrap recycling: 31 of 48 stopped, output full, 11 min");
     const legend = root.querySelector("g.legend")!.textContent!;
-    expect(legend).toContain("ring: share of machines working");
+    expect(legend).toContain("ring: share of machines without problems");
+    expect(legend).toContain("pulse: problems — hover or tap");
     el.remove();
     const uk = await mount({ server_id: "main" }, hass(DASHBOARD, "uk"));
-    expect(uk.shadowRoot!.querySelector("g.legend")!.textContent).toContain("кільце: частка машин, що працюють");
+    const ukLegend = uk.shadowRoot!.querySelector("g.legend")!.textContent;
+    expect(ukLegend).toContain("кільце: частка машин без проблем");
+    expect(ukLegend).toContain("пульс: є проблеми — наведіть або натисніть");
     uk.remove();
+  });
+
+  it("caps the attack callout at five rows and says how many more", async () => {
+    const lines = Array.from({ length: 7 }, (_, i) => ({ recipe: `recipe-${i}`, reason: "no_input", stopped: 5, total: 10, minutes: 3 }));
+    const h = hass({ ...DASHBOARD, "sensor.factorio_main_nauvis_problem_lines": { state: "7", attributes: { lines } } });
+    const el = await mount({ server_id: "main" }, h);
+    const callout = el.shadowRoot!.querySelector("g.callout.attack")!.textContent!;
+    // Losses, position and 7 lines = 9 rows: the first five, then "4 more".
+    expect(callout).toContain("Recipe 2");
+    expect(callout).not.toContain("Recipe 3");
+    expect(callout).toContain("4 more");
+    el.remove();
+  });
+
+  it("colours the machines ring by the planet's problems and fills it with machines without problems", async () => {
+    const h = hass({
+      ...DASHBOARD,
+      "sensor.factorio_main_vulcanus_machines_working": { state: "80", attributes: { total: 100, working: 97, ok: 80 } },
+      "sensor.factorio_main_gleba_machines_working": { state: "50", attributes: { total: 10, working: 9, ok: 5 } },
+      "sensor.factorio_main_gleba_problem_lines": {
+        state: "1",
+        attributes: { lines: [{ recipe: "yumako-processing", reason: "no_input", stopped: 4, total: 6, minutes: 3 }] },
+      },
+    });
+    const el = await mount({ server_id: "main" }, h);
+    const root = el.shadowRoot!;
+    const arcs = [...root.querySelectorAll("circle.machines")];
+    expect(arcs.map((a) => a.getAttribute("class")).sort()).toEqual(["machines amber", "machines green"]);
+    const green = arcs.find((a) => a.classList.contains("green"))!;
+    const c = 2 * Math.PI * Number(green.getAttribute("r"));
+    expect(Number(green.getAttribute("stroke-dasharray")!.split(" ")[0])).toBeCloseTo(c * 0.8, 1);
+    expect([...root.querySelectorAll("text.sublabel")].map((n) => n.textContent)).toEqual(expect.arrayContaining(["80%", "50%"]));
+    el.remove();
+  });
+
+  describe("popup", () => {
+    const GLEBA_LINES = Array.from({ length: 7 }, (_, i) => ({ recipe: `recipe-${i}`, reason: "no_input", stopped: 5, total: 10, minutes: 3 }));
+    const POPUP_STATES = hass({
+      ...DASHBOARD,
+      "sensor.factorio_main_gleba_problem_lines": { state: "7", attributes: { lines: GLEBA_LINES } },
+      "sensor.factorio_main_gleba_machines_working": { state: "50", attributes: { total: 10, working: 9, ok: 5 } },
+    });
+
+    /** Until the popup has been measured and placed (updated() sets state, so updateComplete is false until then). */
+    async function settle(el: FactorioMapCard): Promise<void> {
+      for (let i = 0; i < 5 && !(await el.updateComplete); i++);
+    }
+    const hit = (el: FactorioMapCard, body: string): Element => el.shadowRoot!.querySelector(`circle.hit[data-body="${body}"]`)!;
+    const popup = (el: FactorioMapCard): HTMLElement | null => el.shadowRoot!.querySelector<HTMLElement>(".popup");
+    const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+    it("opens on hover, placed and visible, with a lead to the planet; closes a moment after the pointer leaves", async () => {
+      const el = await mount({ server_id: "main" }, POPUP_STATES);
+      expect(popup(el)).toBeNull();
+      hit(el, "gleba").dispatchEvent(new Event("pointerenter"));
+      await settle(el);
+      const p = popup(el)!;
+      expect(p.dataset.key).toBe("gleba|top");
+      expect(p.getAttribute("style")).not.toContain("hidden");
+      expect(p.classList.contains("warning")).toBe(true);
+      expect(p.querySelector(".ptitle")!.textContent).toBe("Gleba: lines stopped (7)");
+      expect(p.querySelector(".pmachines")!.textContent!.trim()).toBe("5 of 10 machines OK");
+      expect(el.shadowRoot!.querySelector("g.plead.warning")).not.toBeNull();
+      hit(el, "gleba").dispatchEvent(new Event("pointerleave"));
+      await wait(250);
+      await settle(el);
+      expect(popup(el)).toBeNull();
+      el.remove();
+    });
+
+    it("stays open while the pointer is on it", async () => {
+      const el = await mount({ server_id: "main" }, POPUP_STATES);
+      hit(el, "gleba").dispatchEvent(new Event("pointerenter"));
+      await settle(el);
+      hit(el, "gleba").dispatchEvent(new Event("pointerleave"));
+      popup(el)!.dispatchEvent(new Event("pointerenter"));
+      await wait(250);
+      await settle(el);
+      expect(popup(el)).not.toBeNull();
+      el.remove();
+    });
+
+    it("shows five rows and expands the rest without closing", async () => {
+      const el = await mount({ server_id: "main" }, POPUP_STATES);
+      hit(el, "gleba").dispatchEvent(new Event("pointerenter"));
+      await settle(el);
+      expect(popup(el)!.querySelectorAll(".prow")).toHaveLength(5);
+      const more = popup(el)!.querySelector<HTMLButtonElement>("button.more")!;
+      expect(more.textContent!.trim()).toBe("2 more");
+      more.click();
+      await settle(el);
+      expect(popup(el)!.dataset.key).toBe("gleba|open");
+      expect(popup(el)!.querySelectorAll(".prow")).toHaveLength(7);
+      expect(popup(el)!.querySelector("button.more")!.textContent!.trim()).toBe("show less");
+      el.remove();
+    });
+
+    it("a click pins it; the same planet, Escape or the empty map close it; another planet switches", async () => {
+      const el = await mount({ server_id: "main" }, POPUP_STATES);
+      const pinGleba = async (): Promise<void> => {
+        (hit(el, "gleba") as SVGElement).dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+        await settle(el);
+      };
+      await pinGleba();
+      hit(el, "gleba").dispatchEvent(new Event("pointerleave"));
+      await wait(250);
+      await settle(el);
+      expect(popup(el)?.dataset.key).toBe("gleba|top"); // pinned: leaving does not close it
+
+      hit(el, "gleba").dispatchEvent(new Event("pointerenter")); // back on the planet, as a click is
+      await pinGleba(); // the same planet again
+      expect(popup(el)).toBeNull();
+
+      await pinGleba();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      await settle(el);
+      expect(popup(el)).toBeNull();
+
+      await pinGleba();
+      hit(el, "nauvis").dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+      await settle(el);
+      expect(popup(el)?.dataset.key).toBe("nauvis|top");
+      expect(popup(el)!.classList.contains("attack")).toBe(true);
+
+      el.shadowRoot!.querySelector<HTMLElement>(".stage")!.click();
+      await settle(el);
+      expect(popup(el)).toBeNull();
+      el.remove();
+    });
   });
 
   it("treats a body named like an Object.prototype key as a plain name", async () => {

@@ -1,12 +1,13 @@
-import { LitElement, css, html, nothing, svg, type PropertyValues, type SVGTemplateResult } from "lit";
+import { LitElement, css, html, nothing, svg, unsafeCSS, type PropertyValues, type SVGTemplateResult } from "lit";
 import { entityId, slug } from "../shared/entities";
 import { t, tn } from "../shared/i18n";
 import { bodyName } from "../shared/names";
 import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass, type HassState } from "../shared/types";
-import { readMachines } from "../shared/production";
-import { HAZARD_STRIP, collectAlerts, placeCallouts, type Callout } from "./callouts";
+import { machinesShare, readMachines, TOP_ROWS, type Machines } from "../shared/production";
+import { HAZARD_STRIP, collectAlerts, placeCallouts, type Callout, type CalloutInput } from "./callouts";
+import { placePopup, type PopupPlace } from "./popup";
 import { mapHeight, type MapCardConfig } from "./config";
 import "./editor";
 import {
@@ -25,6 +26,11 @@ import {
 const MIN_WIDTH = 960;
 const FALLBACK_WIDTH = 1360;
 const IDLE = new Set(["unknown", "unavailable", ""]);
+/** The popup's width (fixed in CSS) and a height to place it by before it is measured. */
+const POPUP_WIDTH = 400;
+const POPUP_GUESS = { width: POPUP_WIDTH, height: 160 };
+/** Problem count shown on a badge; more reads "99+". */
+const BADGE_MAX = 99;
 
 function parseBodies(value: unknown): Body[] {
   return asList(value).filter(
@@ -44,6 +50,21 @@ function researchTargets(state: HassState | undefined): Map<string, number> {
   return out;
 }
 
+/** Radius of the first ring around a body (status, research or attack). */
+const ringRadius = (p: Placed): number => p.r + (p.parent !== null ? 4 : 5);
+
+/** Radius of the outermost ring: the attack ring goes outside a status or research ring. */
+function outerRadius(v: View, p: Placed): number {
+  const doubled = v.attacked.has(p.name) && (v.research.has(p.name) || v.machines.has(p.name));
+  return ringRadius(p) + (doubled ? 5 : 0);
+}
+
+/** Colour of a body with problems: red under attack, amber otherwise; null without problems. */
+function toneOf(v: View, name: string): "red" | "amber" | null {
+  const problem = v.problems.get(name);
+  return problem === undefined ? null : problem.tone === "attack" ? "red" : "amber";
+}
+
 interface View {
   lang: string;
   width: number;
@@ -53,8 +74,12 @@ interface View {
   callouts: Callout[];
   attacked: Set<string>;
   research: Map<string, number>;
-  /** Share (0–100) of working machines per built planet that reports machines. */
+  /** Share (0–100) of machines without problems per built planet that reports machines. */
   machines: ReadonlyMap<string, number>;
+  /** The machine counts behind `machines`, for the popup. */
+  counts: ReadonlyMap<string, Machines>;
+  /** Everything wrong with a body, as its popup shows it (attacks keep a callout on the map too). */
+  problems: ReadonlyMap<string, CalloutInput>;
   sublabels: ReadonlyMap<string, string>;
   hidden: Set<string>;
   title: string;
@@ -68,6 +93,10 @@ export class FactorioMapCard extends LitElement {
     hass: { attribute: false },
     _config: { state: true },
     _width: { state: true },
+    _hover: { state: true },
+    _pinned: { state: true },
+    _popupOpen: { state: true },
+    _popupSize: { state: true },
   };
 
   declare hass?: Hass;
@@ -78,10 +107,22 @@ export class FactorioMapCard extends LitElement {
   private _timer?: ReturnType<typeof setInterval>;
   private _hasAttack = false;
   private _layout?: { bodies: unknown; key: string; placed: Placed[] };
+  /** The body under the pointer and the one whose popup stays open after a click. */
+  declare _hover: string | null;
+  declare _pinned: string | null;
+  /** The popup shows every row, not only the first TOP_ROWS. */
+  declare _popupOpen: boolean;
+  /** The popup as measured, for the body and expansion it was measured with. */
+  declare _popupSize: { key: string; width: number; height: number } | null;
+  private _hideTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
     super();
     this._width = 0;
+    this._hover = null;
+    this._pinned = null;
+    this._popupOpen = false;
+    this._popupSize = null;
   }
 
   static getConfigElement(): HTMLElement {
@@ -119,6 +160,7 @@ export class FactorioMapCard extends LitElement {
       this._resize = new ResizeObserver(() => this._measure());
       this._resize.observe(this);
     }
+    document.addEventListener("keydown", this._onKey);
     // Keeps "attack for N min" current while an attack goes on.
     this._timer = setInterval(() => {
       if (this._hasAttack) this.requestUpdate();
@@ -130,7 +172,57 @@ export class FactorioMapCard extends LitElement {
     this._resize?.disconnect();
     this._resize = undefined;
     clearInterval(this._timer);
+    clearTimeout(this._hideTimer);
+    document.removeEventListener("keydown", this._onKey);
   }
+
+  /** The body whose popup is shown: the pinned one, else the one under the pointer. */
+  private _active(): string | null {
+    return this._pinned ?? this._hover;
+  }
+
+  /** Closes the popup, pinned or not. */
+  private _close = (): void => {
+    clearTimeout(this._hideTimer);
+    this._pinned = null;
+    this._hover = null;
+  };
+
+  private _onKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" && this._active() !== null) this._close();
+  };
+
+  private _enter(name: string): void {
+    clearTimeout(this._hideTimer);
+    if (this._hover === name) return;
+    if (this._pinned === null) this._popupOpen = false;
+    this._hover = name;
+  }
+
+  /** Leaving a body or its popup closes the popup after a moment (time to move between them). */
+  private _leave = (): void => {
+    clearTimeout(this._hideTimer);
+    this._hideTimer = setTimeout(() => (this._hover = null), 200);
+  };
+
+  private _stay = (): void => clearTimeout(this._hideTimer);
+
+  /** A click pins the popup of a body; the same body again closes it, another one switches. */
+  private _pin(name: string, e: Event): void {
+    e.stopPropagation();
+    if (this._pinned === name) {
+      this._close();
+      return;
+    }
+    if (this._active() !== name) this._popupOpen = false;
+    this._pinned = name;
+    this._hover = name;
+  }
+
+  private _toggleRows = (e: Event): void => {
+    e.stopPropagation();
+    this._popupOpen = !this._popupOpen;
+  };
 
   /** The map is as wide as the box it scrolls in (inside ha-card's border and padding). */
   private _measure(): void {
@@ -138,8 +230,18 @@ export class FactorioMapCard extends LitElement {
     if (width > 0 && Math.abs(width - this._width) >= 1) this._width = width;
   }
 
+  /**
+   * The popup is drawn hidden first, measured here, then placed. Its width is fixed in CSS;
+   * its height is capped (max-height) only once placed, so a measurement never reads back a guess.
+   */
   protected updated(): void {
     this._measure();
+    const popup = this.renderRoot?.querySelector<HTMLElement>(".popup");
+    const key = popup?.dataset.key;
+    if (!popup || !key) return;
+    const height = popup.offsetHeight || POPUP_GUESS.height;
+    const known = this._popupSize;
+    if (!known || known.key !== key || Math.abs(known.height - height) > 1) this._popupSize = { key, width: POPUP_WIDTH, height };
   }
 
   /** HA sets `hass` on every state change anywhere; re-render only when one of ours changed. */
@@ -171,14 +273,16 @@ export class FactorioMapCard extends LitElement {
 
     const sublabels = new Map<string, string>();
     for (const [name, progress] of research) sublabels.set(name, t(lang, "research_progress", { progress: Math.round(progress) }));
-    // Working machines of built planets; research first when a body has both.
+    // Machines without problems on built planets; research first when a body has both.
     const machines = new Map<string, number>();
+    const counts = new Map<string, Machines>();
     for (const b of bodies) {
       if (b.state !== "built") continue;
       const m = readMachines(hass.states, sid, b.name);
       if (!m) continue;
-      const share = (m.working / m.total) * 100;
+      const share = machinesShare(m);
       machines.set(b.name, share);
+      counts.set(b.name, m);
       const label = t(lang, "machines_share", { percent: Math.round(share) });
       const known = sublabels.get(b.name);
       sublabels.set(b.name, known === undefined ? label : `${known} · ${label}`);
@@ -194,7 +298,7 @@ export class FactorioMapCard extends LitElement {
     const breakdown = t(lang, "map_breakdown", { built, unlocked, locked: bodies.length - built - unlocked });
     const header: Rect = { x0: 0, y0: 0, x1: 24 + Math.max(title.length * 13.5, breakdown.length * 6.6) + 16, y1: 80 };
 
-    const items = ["built", "unlocked", "locked", "research", "attack", "machines"].map((key) => ({ key, text: t(lang, `legend_${key}`) }));
+    const items = ["built", "unlocked", "locked", "research", "attack", "machines", "pulse"].map((key) => ({ key, text: t(lang, `legend_${key}`) }));
     const { x: legendX, y: legendY, rect: legendRect } = legendLayout({ width, height }, items.map((i) => i.text));
     const legend = { x: legendX, y: legendY, items };
 
@@ -206,7 +310,15 @@ export class FactorioMapCard extends LitElement {
         placed: layoutBodies(bodies, { width, height }, { sublabels, hidden, obstacles: [header, legendRect], title: (name) => bodyName(name, lang) }),
       };
     const placed = this._layout.placed;
-    const callouts = placeCallouts(alerts, placed, {
+    // Only attacks keep a callout on the map; every problem is in the body's popup.
+    const permanent = alerts
+      .filter((a) => a.tone === "attack")
+      .map((a) =>
+        a.lines.length <= TOP_ROWS
+          ? a
+          : { ...a, lines: [...a.lines.slice(0, TOP_ROWS), { text: t(lang, "pl_more", { count: a.lines.length - TOP_ROWS }), tone: "muted" as const }] },
+      );
+    const callouts = placeCallouts(permanent, placed, {
       width,
       height,
       top: { x0: header.x1 + 8, x1: width - 16 },
@@ -230,6 +342,8 @@ export class FactorioMapCard extends LitElement {
       attacked,
       research,
       machines,
+      counts,
+      problems: new Map(alerts.map((a) => [a.body, a])),
       sublabels,
       hidden,
       title,
@@ -250,23 +364,93 @@ export class FactorioMapCard extends LitElement {
     if (bodies.length === 0) return html`<ha-card><div class="message">${t(lang, "map_no_bodies")}</div></ha-card>`;
     const v = this._view(sid, raw, bodies);
     this._hasAttack = v.attacked.size > 0;
+    const popup = this._placePopup(v);
     return html`<ha-card>
       <div class="scroll">
-        <svg
-          role="img"
-          aria-label=${v.aria}
-          width=${v.width}
-          height=${v.height}
-          viewBox="0 0 ${v.width} ${v.height}"
-        >
-          ${this._defs()} ${this._backdrop(v)} ${v.callouts.map((c) => this._calloutLine(c))}
-          ${v.placed.filter((p) => p.parent === null).map((p) => this._body(v, p))}
-          ${v.placed.filter((p) => p.parent !== null).map((p) => this._body(v, p))}
-          ${v.placed.map((p) => this._label(v, p))} ${v.callouts.map((c) => this._callout(c))} ${this._header(v)}
-          ${this._legend(v)}
-        </svg>
+        <div class="stage" style="width:${v.width}px;height:${v.height}px" @click=${this._close}>
+          <svg
+            role="img"
+            aria-label=${v.aria}
+            width=${v.width}
+            height=${v.height}
+            viewBox="0 0 ${v.width} ${v.height}"
+          >
+            ${this._defs()} ${this._backdrop(v)} ${v.callouts.map((c) => this._calloutLine(c))}
+            ${v.placed.filter((p) => p.parent === null).map((p) => this._body(v, p))}
+            ${v.placed.filter((p) => p.parent !== null).map((p) => this._body(v, p))}
+            ${v.placed.map((p) => this._label(v, p))} ${v.callouts.map((c) => this._callout(c))} ${this._header(v)}
+            ${this._legend(v)} ${popup?.measured && popup.place.line ? this._popupLead(popup.place.line, popup.problem.tone) : nothing}
+            ${v.placed.filter((p) => v.problems.has(p.name)).map((p) => this._hit(v, p))}
+          </svg>
+          ${popup ? this._popup(v, popup) : nothing}
+        </div>
       </div>
     </ha-card>`;
+  }
+
+  /** Where the popup of the active body goes, from its measured size (or a guess while it is being measured). */
+  private _placePopup(v: View): { name: string; key: string; problem: CalloutInput; place: PopupPlace; measured: boolean } | null {
+    const name = this._active();
+    const problem = name === null ? undefined : v.problems.get(name);
+    const p = name === null ? undefined : v.placed.find((b) => b.name === name);
+    if (name === null || !problem || !p) return null;
+    const key = `${name}|${this._popupOpen ? "open" : "top"}`;
+    const measured = this._popupSize?.key === key;
+    const size = measured ? this._popupSize! : POPUP_GUESS;
+    return { name, key, problem, measured, place: placePopup({ cx: p.cx, cy: p.cy, r: outerRadius(v, p) + 2 }, v, size) };
+  }
+
+  private _popup(v: View, pop: NonNullable<ReturnType<FactorioMapCard["_placePopup"]>>) {
+    const { problem, place } = pop;
+    const m = v.counts.get(pop.name);
+    const rows = this._popupOpen ? problem.lines : problem.lines.slice(0, TOP_ROWS);
+    // Hidden at the corner until measured; then placed, its height capped to the map (it scrolls inside).
+    const style = pop.measured
+      ? `left:${place.x}px;top:${place.y}px;max-height:${place.height}px`
+      : "left:0;top:0;visibility:hidden";
+    return html`<div
+      class="popup ${problem.tone}"
+      data-key=${pop.key}
+      style=${style}
+      role="dialog"
+      aria-label=${problem.title}
+      @click=${(e: Event) => e.stopPropagation()}
+      @pointerenter=${this._stay}
+      @pointerleave=${this._leave}
+    >
+      <div class="ptitle">${problem.title}</div>
+      ${m
+        ? html`<div class="pmachines">
+            ${m.ok === null ? tn(v.lang, "pl_machines", m.total, { working: m.working }) : tn(v.lang, "pl_machines_ok", m.total, { ok: m.ok })}
+          </div>`
+        : nothing}
+      ${rows.map((l) => html`<div class="prow ${l.tone}">${l.text}</div>`)}
+      ${problem.lines.length > TOP_ROWS
+        ? html`<button class="more" aria-expanded=${this._popupOpen ? "true" : "false"} @click=${this._toggleRows}>
+            ${this._popupOpen ? t(v.lang, "pl_less") : t(v.lang, "pl_more", { count: problem.lines.length - TOP_ROWS })}
+          </button>`
+        : nothing}
+    </div>`;
+  }
+
+  private _popupLead(line: NonNullable<PopupPlace["line"]>, tone: CalloutInput["tone"]): SVGTemplateResult {
+    return svg`<g class="lead plead ${tone}">
+      <path d="M${line.x1} ${line.y1} L${line.x2} ${line.y2}"></path><circle cx=${line.x1} cy=${line.y1} r="2.5"></circle>
+    </g>`;
+  }
+
+  /** The pointer target of a body with problems: a little larger than everything drawn around it. */
+  private _hit(v: View, p: Placed): SVGTemplateResult {
+    return svg`<circle
+      class="hit"
+      data-body=${p.name}
+      cx=${p.cx}
+      cy=${p.cy}
+      r=${Math.max(outerRadius(v, p) + 6, 14)}
+      @pointerenter=${() => this._enter(p.name)}
+      @pointerleave=${this._leave}
+      @click=${(e: Event) => this._pin(p.name, e)}
+    ></circle>`;
   }
 
   private _defs(): SVGTemplateResult {
@@ -306,15 +490,18 @@ export class FactorioMapCard extends LitElement {
     const body = v.bodies.get(p.name);
     const color = planetColor(p.name);
     const moon = p.parent !== null;
-    const ring = p.r + (moon ? 4 : 5);
+    const ring = ringRadius(p);
     const research = v.research.get(p.name);
     const share = v.machines.get(p.name);
     const attacked = v.attacked.has(p.name);
+    const tone = toneOf(v, p.name);
     const parts: SVGTemplateResult[] = [];
     const c = 2 * Math.PI * ring;
+    // A body with problems pulses (static under reduced motion): hover or tap it for the popup.
+    if (tone !== null) parts.push(svg`<circle class="pulse ${tone}" data-body=${p.name} cx=${p.cx} cy=${p.cy} r=${outerRadius(v, p) + 3}></circle>`);
     if (share !== undefined && research === undefined)
       parts.push(svg`<circle class="ring" cx=${p.cx} cy=${p.cy} r=${ring}></circle>
-        <circle class="machines" cx=${p.cx} cy=${p.cy} r=${ring} stroke-dasharray="${(c * share) / 100} ${c}"
+        <circle class="machines ${tone ?? "green"}" cx=${p.cx} cy=${p.cy} r=${ring} stroke-dasharray="${(c * share) / 100} ${c}"
           transform="rotate(-90 ${p.cx} ${p.cy})"></circle>`);
     else if (body?.state === "built" && !moon && research === undefined && !attacked)
       parts.push(svg`<circle class="ring" cx=${p.cx} cy=${p.cy} r=${ring}></circle>`);
@@ -324,7 +511,7 @@ export class FactorioMapCard extends LitElement {
           transform="rotate(-90 ${p.cx} ${p.cy})"></circle>`);
     }
     if (attacked)
-      parts.push(svg`<circle class="hazard" cx=${p.cx} cy=${p.cy} r=${research === undefined && share === undefined ? ring : ring + 5}
+      parts.push(svg`<circle class="hazard" cx=${p.cx} cy=${p.cy} r=${outerRadius(v, p)}
         stroke="url(#fha-hz)" stroke-width=${moon ? 3 : 4}></circle>`);
     if (body?.state === "built") {
       parts.push(svg`<circle class="body built" cx=${p.cx} cy=${p.cy} r=${p.r} fill=${color}></circle>`);
@@ -333,6 +520,19 @@ export class FactorioMapCard extends LitElement {
       parts.push(svg`<circle class="body unlocked" cx=${p.cx} cy=${p.cy} r=${p.r} stroke=${color}></circle>`);
     } else {
       parts.push(svg`<circle class="body locked" cx=${p.cx} cy=${p.cy} r=${p.r} stroke=${color}></circle>`);
+    }
+    // How many problems a body has, on its upper right (attacks have their callout instead).
+    const problem = v.problems.get(p.name);
+    if (problem && problem.tone !== "attack") {
+      const n = problem.lines.length;
+      const text = n > BADGE_MAX ? `${BADGE_MAX}+` : String(n);
+      const w = 10 + text.length * 6.5;
+      const bx = p.cx + outerRadius(v, p) * Math.SQRT1_2;
+      const by = p.cy - outerRadius(v, p) * Math.SQRT1_2;
+      parts.push(svg`<g class="count" data-body=${p.name}>
+        <rect x=${bx - w / 2} y=${by - 8} width=${w} height="16" rx="8"></rect>
+        <text x=${bx} y=${by + 3.5} text-anchor="middle">${text}</text>
+      </g>`);
     }
     return svg`<g>${parts}</g>`;
   }
@@ -395,6 +595,8 @@ export class FactorioMapCard extends LitElement {
         case "machines":
           return svg`<circle class="ring" cx=${cx} cy=${cy} r="7" stroke-width="2.5"></circle>
             <path class="machines" d="M${cx} ${cy - 7} A7 7 0 1 1 ${cx - 6.06} ${cy + 3.5}" stroke-width="2.5"></path>`;
+        case "pulse":
+          return svg`<circle class="legend-halo" cx=${cx} cy=${cy} r="7.5"></circle><circle class="legend-amber" cx=${cx} cy=${cy} r="4"></circle>`;
         default:
           return svg`<rect x=${cx - 8} y=${cy - 3.5} width="16" height="7" rx="1" fill="url(#fha-hz-sm)"></rect>`;
       }
@@ -427,6 +629,9 @@ export class FactorioMapCard extends LitElement {
       .scroll {
         overflow-x: auto;
         overflow-y: hidden;
+      }
+      .stage {
+        position: relative;
       }
       svg {
         display: block;
@@ -480,6 +685,123 @@ export class FactorioMapCard extends LitElement {
         fill: none;
         stroke: var(--fha-green);
         stroke-width: 3;
+      }
+      .machines.amber {
+        stroke: var(--fha-amber);
+      }
+      .machines.red {
+        stroke: var(--fha-red);
+      }
+      .pulse {
+        fill: none;
+        stroke-width: 2.5;
+        pointer-events: none;
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: fha-pulse 2.4s ease-out infinite;
+      }
+      .pulse.red {
+        stroke: var(--fha-red);
+      }
+      .pulse.amber {
+        stroke: var(--fha-amber);
+      }
+      @keyframes fha-pulse {
+        0% {
+          transform: scale(1);
+          opacity: 0.9;
+        }
+        70%,
+        100% {
+          transform: scale(1.5);
+          opacity: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .pulse {
+          animation: none;
+          opacity: 0.6;
+        }
+      }
+      .count {
+        pointer-events: none;
+      }
+      .count rect {
+        fill: var(--fha-amber);
+        stroke: var(--fha-bg);
+        stroke-width: 1.5;
+      }
+      .count text {
+        fill: var(--fha-bg);
+        font-size: 10.5px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .hit {
+        fill: transparent;
+        pointer-events: all;
+        cursor: pointer;
+      }
+      .plead {
+        pointer-events: none;
+      }
+      .popup {
+        position: absolute;
+        z-index: 1;
+        box-sizing: border-box;
+        width: ${unsafeCSS(POPUP_WIDTH)}px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding: 12px 14px;
+        overflow-y: auto;
+        border: 1px solid;
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+        font-family: "Golos Text", system-ui, sans-serif;
+        font-size: 13px;
+        line-height: 1.35;
+        color: var(--fha-text);
+      }
+      .popup.attack {
+        background: var(--fha-red-bg);
+        border-color: var(--fha-red-border);
+      }
+      .popup.warning {
+        background: var(--fha-amber-bg);
+        border-color: var(--fha-amber-border);
+      }
+      .ptitle {
+        font-family: Unbounded, "Golos Text", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .popup.attack .ptitle {
+        color: var(--fha-red-soft);
+      }
+      .popup.warning .ptitle {
+        color: var(--fha-amber-soft);
+      }
+      .pmachines,
+      .prow.muted {
+        font-size: 12px;
+        color: var(--fha-soft);
+      }
+      .prow.amber {
+        color: var(--fha-amber-soft);
+      }
+      .popup .more {
+        align-self: flex-start;
+        padding: 2px 0;
+        border: 0;
+        background: none;
+        color: var(--fha-cyan);
+        font: inherit;
+        cursor: pointer;
+      }
+      .popup .more:hover {
+        text-decoration: underline;
       }
       .hazard {
         fill: none;
@@ -586,6 +908,15 @@ export class FactorioMapCard extends LitElement {
       }
       .legend-fill {
         fill: var(--fha-muted);
+      }
+      .legend-amber {
+        fill: var(--fha-amber);
+      }
+      .legend-halo {
+        fill: none;
+        stroke: var(--fha-amber);
+        stroke-width: 2;
+        opacity: 0.5;
       }
     `,
   ];
