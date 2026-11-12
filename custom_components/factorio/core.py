@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from collections.abc import Callable, Mapping
 from datetime import timedelta
@@ -58,7 +59,14 @@ def _route(value: Any) -> dict[str, Any] | None:
     start, end, progress = _text(route.get("from")), _text(route.get("to")), route.get("progress")
     if start is None or end is None:
         return None
-    share = float(progress) if isinstance(progress, (int, float)) and not isinstance(progress, bool) else 0.0
+    share = 0.0
+    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+        try:
+            share = float(progress)
+        except OverflowError:  # an int beyond float range
+            share = 1.0 if progress > 0 else 0.0
+    if not math.isfinite(share):
+        share = 1.0 if share > 0 else 0.0  # NaN compares False: 0
     return {"from": start, "to": end, "progress": min(1.0, max(0.0, share))}
 
 
@@ -155,8 +163,8 @@ class FactorioCore:
         ):
             payload = dict(data)
             key = payload.pop("planet", None)
-            if not isinstance(key, str) or not key.isdigit():
-                continue
+            if not isinstance(key, str) or not (key.isascii() and key.isdecimal()):
+                continue  # "²" is a digit to str.isdigit() but not to int()
             platform_name = as_dict(by_platform.get(key)).get("name")
             events.append((name, {"platform": int(key), "platform_name": platform_name if isinstance(platform_name, str) else "", **payload}))
         return events

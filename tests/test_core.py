@@ -455,3 +455,17 @@ def test_platform_lines_reset_when_machines_go_away():
     assert core.platforms()[0]["lines"]
     machines(core, None, None)
     assert core.platforms()[0]["lines"] == []
+
+
+def test_platform_input_that_python_cannot_convert_is_skipped():
+    core = FactorioCore("main")
+    events, _ = collect(core)
+    odd = {"index": 1, "name": "Odd", "state": "on_the_path", "route": {"from": "a", "to": "b", "progress": 10**400}}
+    nan = {"index": 2, "name": "NaN", "state": "on_the_path", "route": {"from": "a", "to": "b", "progress": float("nan")}}
+    platforms(core, {"list": [odd, nan]})
+    assert [p["route"]["progress"] for p in core.platforms()] == [1.0, 0.0]
+    group = {"recipe": "x", "total": 10, "working": 0, "no_input": 10, "output_full": 0, "no_power": 0, "at": []}
+    # "²" passes str.isdigit() but int() rejects it
+    machines(core, {"by_planet": {}, "by_platform": {"²": {"name": "Odd", "total": 10, "working": 0, "groups": [group]}}}, 1000)
+    clock(core, 1000 + 2 * TICKS_PER_MINUTE)
+    assert events == []
