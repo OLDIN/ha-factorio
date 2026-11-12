@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import bodies5 from "./fixtures/bodies-5.json";
 import bodies21 from "./fixtures/bodies-21.json";
 import { generateBodies } from "./fixtures/generate";
-import { layoutBodies, type Body, type Placed } from "../src/map/layout";
+import { GAP_CAP, layoutBodies, legendLayout, type Body, type Placed } from "../src/map/layout";
+import { t } from "../src/shared/i18n";
 
 const SIZE = { width: 1360, height: 640 };
 const SETS: Record<string, Body[]> = {
@@ -95,6 +96,45 @@ describe.each(Object.keys(SETS))("layoutBodies with %s bodies", (key) => {
 
   it("labels do not overlap each other or circles", () => {
     expect(labelProblems(placed)).toBeLessThanOrEqual(key === "60" ? 3 : 0);
+  });
+});
+
+describe("distance axis", () => {
+  it("caps gaps: the largest gap between neighbouring x is at most GAP_CAP × the median gap", () => {
+    for (const key of ["21", "60"]) {
+      const xs = [
+        ...new Set(
+          layoutBodies(SETS[key], SIZE)
+            .filter((p) => p.parent === null)
+            .map((p) => Math.round(p.cx * 1e6) / 1e6),
+        ),
+      ].sort((a, b) => a - b);
+      const gaps = xs.slice(1).map((x, i) => x - xs[i]);
+      const sorted = [...gaps].sort((a, b) => a - b);
+      const mid = sorted.length >> 1;
+      const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      expect(Math.max(...gaps), key).toBeLessThanOrEqual(GAP_CAP * median + 1e-3);
+      expect(xs[0]).toBeCloseTo(80, 6);
+      expect(xs[xs.length - 1]).toBeCloseTo(SIZE.width - 80, 6);
+    }
+  });
+});
+
+describe("legend keep-out", () => {
+  const texts = ["built", "unlocked", "locked", "research", "attack"].map((k) => t("uk", `legend_${k}`));
+  it.each([
+    ["21", 1360, 640],
+    ["21", 1360, 360],
+    ["60", 1360, 640],
+    ["60", 1360, 360],
+  ])("no body or label of the %s bodies is under the legend at %ix%i", (key, width, height) => {
+    const size = { width: width as number, height: height as number };
+    const legend = legendLayout(size, texts).rect;
+    const placed = layoutBodies(SETS[key as string], size, { obstacles: [legend] });
+    for (const p of placed) {
+      expect(boxHitsCircle(legend, p), `${p.name} under the legend`).toBe(false);
+      expect(boxesOverlap(labelBox(p), legend), `label of ${p.name} under the legend`).toBe(false);
+    }
   });
 });
 

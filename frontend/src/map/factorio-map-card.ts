@@ -7,13 +7,23 @@ import { asDict, asList, type Hass, type HassState } from "../shared/types";
 import { HAZARD_STRIP, collectAlerts, placeCallouts, type Callout } from "./callouts";
 import { mapHeight, type MapCardConfig } from "./config";
 import "./editor";
-import { labelFont, labelRect, layoutBodies, prettyName, sunGeometry, type Body, type Placed, type Rect } from "./layout";
+import {
+  LEGEND_ROW,
+  labelFont,
+  labelRect,
+  layoutBodies,
+  legendLayout,
+  prettyName,
+  sunGeometry,
+  type Body,
+  type Placed,
+  type Rect,
+} from "./layout";
 
 /** Below this width the map keeps its layout and scrolls sideways (as the mockup does). */
 const MIN_WIDTH = 960;
 const FALLBACK_WIDTH = 1360;
 const IDLE = new Set(["unknown", "unavailable", ""]);
-const LEGEND_ROW = 21;
 
 function parseBodies(value: unknown): Body[] {
   return asList(value).filter(
@@ -170,9 +180,8 @@ export class FactorioMapCard extends LitElement {
     const header: Rect = { x0: 0, y0: 0, x1: 24 + Math.max(title.length * 13.5, breakdown.length * 6.6) + 16, y1: 80 };
 
     const items = ["built", "unlocked", "locked", "research", "attack"].map((key) => ({ key, text: t(lang, `legend_${key}`) }));
-    const legendWidth = 28 + Math.max(...items.map((i) => i.text.length * 6.3));
-    const legend = { x: width - legendWidth - 20, y: height - 18 - (items.length - 1) * LEGEND_ROW, items };
-    const legendRect: Rect = { x0: legend.x - 12, y0: legend.y - 14, x1: width, y1: height };
+    const { x: legendX, y: legendY, rect: legendRect } = legendLayout({ width, height }, items.map((i) => i.text));
+    const legend = { x: legendX, y: legendY, items };
 
     const key = [width, height, JSON.stringify(sublabels), [...hidden].join(","), Math.round(header.x1), Math.round(legend.x)].join("|");
     if (!this._layout || this._layout.bodies !== bodiesRaw || this._layout.key !== key)

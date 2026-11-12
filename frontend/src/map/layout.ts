@@ -1,8 +1,9 @@
 /**
  * Pure layout of the system map: where each body, moon and label goes. No Lit, no DOM.
  *
- * The map is "unrolled": the sun is on the left, x grows linearly with the distance of
- * top-level bodies from the sun, y follows their orientation. Moons sit next to their parent.
+ * The map is "unrolled": the sun is on the left, x grows with the distance of top-level bodies
+ * from the sun (gap-capped, see distanceScale), y follows their orientation. Moons sit next to
+ * their parent.
  */
 
 /** One entry of the `bodies` attribute; absent fields mean null. */
@@ -49,12 +50,16 @@ export interface LayoutOptions {
   sublabels?: Record<string, string>;
   /** Bodies whose labels are not drawn: they take no space. */
   hidden?: ReadonlySet<string>;
-  /** Areas labels keep away from (the summary, the legend). */
+  /** Areas bodies and labels keep away from (the summary, the legend). */
   obstacles?: Rect[];
 }
 
 /** Side margin of the distance axis. */
 export const MARGIN_X = 80;
+/** On the distance axis a gap between neighbouring distances is at most this many median gaps. */
+export const GAP_CAP = 3;
+/** Row height of the legend. */
+export const LEGEND_ROW = 21;
 /** Label font sizes; a label is about `characters × 7.5` px wide at 13 px. */
 export const LABEL_FONT = 13;
 export const MOON_LABEL_FONT = 11;
@@ -67,6 +72,8 @@ const MOON_RING_ALLOWANCE = 3;
 /** Free space between the drawn outlines of two bodies. */
 const GAP = 8;
 const ITERATIONS = 50;
+/** Free space between a body (rings included) and an obstacle. */
+const KEEP_OUT_PAD = 4;
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
@@ -99,6 +106,14 @@ export function plotBand(size: Size): { top: number; bottom: number } {
   const top = clamp(size.height * 0.19, 110, 130);
   const bottom = size.height - clamp(size.height * 0.23, 80, 150);
   return { top, bottom: Math.max(bottom, top) };
+}
+
+/** The legend in the bottom-right corner: icon column at `x`, first baseline at `y`, and the box it takes. */
+export function legendLayout(size: Size, texts: string[]): { x: number; y: number; rect: Rect } {
+  const width = 28 + Math.max(0, ...texts.map((text) => text.length * 6.3));
+  const x = size.width - width - 20;
+  const y = size.height - 18 - (texts.length - 1) * LEGEND_ROW;
+  return { x, y, rect: { x0: x - 12, y0: y - 14, x1: size.width, y1: size.height } };
 }
 
 /** The sun: a big disc off the left edge, its visible rim at x = 40. */
@@ -141,6 +156,31 @@ interface Cluster {
   hi: number;
   x0: number; // horizontal extent, for a quick reject
   x1: number;
+}
+
+/**
+ * Position on the distance axis, 0…1, monotonic in distance (equal distances, equal positions).
+ * Neighbouring distinct distances are spaced by their gap, but no gap counts for more than
+ * GAP_CAP median gaps: one far body (shattered-planet at 80 next to the rest at ≤ 50) does not
+ * squeeze the whole system into a corner.
+ */
+export function distanceScale(distances: number[]): (d: number) => number {
+  const ds = [...new Set(distances.filter(isNum))].sort((a, b) => a - b);
+  if (ds.length < 2) return () => 0.5;
+  const gaps = ds.slice(1).map((d, i) => d - ds[i]);
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const cum = [0];
+  gaps.forEach((g, i) => cum.push(cum[i] + Math.min(g, GAP_CAP * median)));
+  const total = cum[cum.length - 1];
+  return (d) => {
+    if (d <= ds[0]) return 0;
+    if (d >= ds[ds.length - 1]) return 1;
+    let i = 1;
+    while (ds[i] < d) i++;
+    return (cum[i - 1] + ((d - ds[i - 1]) / (ds[i] - ds[i - 1])) * (cum[i] - cum[i - 1])) / total;
+  };
 }
 
 function orientationOf(b: Body): number | null {
@@ -260,6 +300,37 @@ function separation(nodes: Node[], a: Cluster, b: Cluster): { shift: number; dir
 
 const collides = (nodes: Node[], a: Cluster, b: Cluster): boolean => separation(nodes, a, b).shift > 1e-6;
 
+/**
+ * Narrows the cluster's vertical range so that none of its bodies (rings included) overlaps an
+ * obstacle (the legend, the summary) it shares x with. If the band leaves no room, the cluster
+ * may leave the band, but never the card.
+ */
+function keepOut(nodes: Node[], c: Cluster, obstacles: Rect[], cardLo: number, cardHi: number): void {
+  const root = nodes[c.root];
+  for (const o of obstacles) {
+    // Root heights at which some member would touch the obstacle: the open interval (fa, fb).
+    let fa = Infinity;
+    let fb = -Infinity;
+    for (const i of c.members) {
+      const n = nodes[i];
+      const pad = n.halo + KEEP_OUT_PAD;
+      if (n.cx + pad <= o.x0 || n.cx - pad >= o.x1) continue;
+      const rel = n.cy - root.cy;
+      fa = Math.min(fa, o.y0 - rel - pad);
+      fb = Math.max(fb, o.y1 - rel + pad);
+    }
+    if (fa >= fb || fb <= c.lo || fa >= c.hi) continue;
+    const stayAbove = fb >= c.hi || (fa > c.lo && root.cy < (fa + fb) / 2);
+    if (stayAbove) {
+      c.hi = Math.max(cardLo, fa);
+      c.lo = Math.min(c.lo, c.hi);
+    } else {
+      c.lo = Math.min(cardHi, fb);
+      c.hi = Math.max(c.hi, c.lo);
+    }
+  }
+}
+
 function pushApart(nodes: Node[], clusters: Cluster[]): void {
   for (let iter = 0; iter < ITERATIONS; iter++) {
     let moved = false;
@@ -356,7 +427,7 @@ function placeLabels(nodes: Node[], placed: Placed[], size: Size, opts: LayoutOp
       let score = 0;
       if (rect.x0 < 2 || rect.y0 < 2 || rect.x1 > size.width - 2 || rect.y1 > size.height - 2) score += 1000;
       for (const t of taken) if (rectsOverlap(rect, t, 2)) score += 100;
-      for (const o of obstacles) if (rectsOverlap(rect, o, 2)) score += 50;
+      for (const o of obstacles) if (rectsOverlap(rect, o, 2)) score += 1000; // like the card edge
       for (const n of nodes) {
         if (rectHitsCircle(rect, n.cx, n.cy, n.r + 1)) score += 100;
         else if (rectHitsCircle(rect, n.cx, n.cy, n.halo)) score += 1;
@@ -371,8 +442,8 @@ function placeLabels(nodes: Node[], placed: Placed[], size: Size, opts: LayoutOp
 }
 
 /**
- * Positions of all bodies on a map of `size`. Top-level bodies: x linear in distance with
- * 80 px margins, y by orientation, then pushed apart vertically; moons next to their parent.
+ * Positions of all bodies on a map of `size`. Top-level bodies: x by distance (gap-capped scale,
+ * 80 px margins), y by orientation, then pushed apart vertically; moons next to their parent.
  */
 export function layoutBodies(bodies: Body[], size: Size, opts: LayoutOptions = {}): Placed[] {
   const nodes = buildNodes(bodies);
@@ -382,14 +453,14 @@ export function layoutBodies(bodies: Body[], size: Size, opts: LayoutOptions = {
 
   const dists = tops.map((n) => distanceOf(n.body)).filter(isNum);
   const dmin = dists.length ? Math.min(...dists) : 0;
-  const dmax = dists.length ? Math.max(...dists) : 0;
+  const scale = distanceScale(dists);
   const ors = tops.map((n) => orientationOf(n.body)).filter(isNum);
   const omin = ors.length ? Math.min(...ors) : 0;
   const omax = ors.length ? Math.max(...ors) : 0;
   for (const n of tops) {
     const d = distanceOf(n.body) ?? dmin;
     const o = orientationOf(n.body);
-    n.cx = dmax > dmin ? MARGIN_X + ((d - dmin) / (dmax - dmin)) * (size.width - 2 * MARGIN_X) : size.width / 2;
+    n.cx = MARGIN_X + scale(d) * (size.width - 2 * MARGIN_X);
     n.cy = o !== null && omax > omin ? top + ((o - omin) / (omax - omin)) * (bottom - top) : (top + bottom) / 2;
   }
 
@@ -422,9 +493,12 @@ export function layoutBodies(bodies: Body[], size: Size, opts: LayoutOptions = {
       c.x1 = Math.max(c.x1, n.cx + n.halo);
     }
     // The whole cluster (moons included) stays on the card.
-    c.lo = Math.max(top, up + 2);
-    c.hi = Math.min(bottom, size.height - down - 2);
+    const cardLo = up + 2;
+    const cardHi = size.height - down - 2;
+    c.lo = Math.max(top, cardLo);
+    c.hi = Math.min(bottom, cardHi);
     if (c.lo > c.hi) c.lo = c.hi = (c.lo + c.hi) / 2;
+    keepOut(nodes, c, opts.obstacles ?? [], cardLo, cardHi);
     moveCluster(nodes, c, 0);
   }
 
