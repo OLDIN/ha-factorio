@@ -106,6 +106,8 @@ describe("factorio-planets-card", () => {
     expect(rows[0].querySelector(".evo b")?.textContent).toBe("89%");
     expect(root.querySelectorAll(".healthy li")).toHaveLength(2);
     expect(root.querySelector(".healthy .count")?.textContent).toBe("2");
+    // In the mockup that number is the share of working machines (stage 2b): say what it is now.
+    expect(root.querySelector(".healthy .hint")?.textContent).toBe("відсоток — еволюція ворогів");
     expect([...root.querySelectorAll(".unlocked li")].map((li) => li.textContent?.trim())).toEqual(["Rubia"]);
     const locked = [...root.querySelectorAll(".locked li")];
     expect(locked).toHaveLength(2);

@@ -92,7 +92,11 @@ export class FactorioPlanetsCard extends LitElement {
               : html`<div class="calm">${t(lang, "pl_calm")}</div>`}
             ${m.healthy.length > 0
               ? html`<div class="group healthy">
-                  <div class="sub"><h3>${t(lang, "pl_healthy")}</h3><span class="count">${m.healthy.length}</span></div>
+                  <div class="sub">
+                    <h3>${t(lang, "pl_healthy")}</h3>
+                    <span class="count">${m.healthy.length}</span>
+                    ${m.healthy.some((r) => r.evolution !== null) ? html`<span class="hint">${t(lang, "pl_healthy_hint")}</span>` : nothing}
+                  </div>
                   <ul class="grid">
                     ${m.healthy.map(
                       (r) => html`<li>
@@ -263,6 +267,9 @@ export class FactorioPlanetsCard extends LitElement {
       .count {
         font: 500 14px "Unbounded", system-ui, sans-serif;
         color: var(--fha-green-soft);
+      }
+      .sub .hint {
+        margin-left: auto;
       }
       .count.muted {
         color: var(--fha-muted);
