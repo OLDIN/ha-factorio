@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-MessageKind = Literal["availability", "hello", "state", "event", "data"]
+MessageKind = Literal["availability", "hello", "state", "event", "data", "tick"]
 
 
 @dataclass(frozen=True)

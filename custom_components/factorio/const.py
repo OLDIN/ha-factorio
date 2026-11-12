@@ -18,8 +18,15 @@ EVENT_TYPES = [
     "turrets_ok",
     "research_finished",
     "player_died",
+    "line_problem",
+    "line_recovered",
+    "drills_depleted",
 ]
-CATEGORIES = ["players", "planets", "defense", "evolution", "research"]
+CATEGORIES = ["players", "planets", "defense", "evolution", "research", "machines", "drills"]
+CONF_LINE_SHARE = "line_problem_share"  # percent of a group that stands
+CONF_LINE_MINUTES = "line_problem_minutes"  # game minutes
+DEFAULT_LINE_SHARE = 30
+DEFAULT_LINE_MINUTES = 2
 EVENT_WINDOW_MINUTES = 60
 MAX_RECENT_EVENTS = 50
 PROTOCOL_VERSION = 1

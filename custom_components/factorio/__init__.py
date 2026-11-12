@@ -14,7 +14,15 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_SERVER_ID, DOMAIN, EVENT_TYPES
+from .const import (
+    CONF_LINE_MINUTES,
+    CONF_LINE_SHARE,
+    CONF_SERVER_ID,
+    DEFAULT_LINE_MINUTES,
+    DEFAULT_LINE_SHARE,
+    DOMAIN,
+    EVENT_TYPES,
+)
 from .core import FactorioCore, build_config
 from .entity import server_device_info
 from .frontend import async_register_frontend, async_remove_resource
@@ -46,6 +54,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: FactorioConfigEntry) -> bool:
     server_id: str = entry.data[CONF_SERVER_ID]
     core = FactorioCore(server_id)
+    _apply_line_rule(core, entry)
     provider = create_provider(hass, entry)
     # Registered up front: planet devices link to it by device id.
     server_device = dr.async_get(hass).async_get_or_create(
@@ -86,7 +95,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: FactorioConfigEntry) -> 
     return True
 
 
+def _apply_line_rule(core: FactorioCore, entry: FactorioConfigEntry) -> None:
+    """The line problem rule is kept in the options only; the defaults apply until it is set."""
+    share = entry.options.get(CONF_LINE_SHARE, DEFAULT_LINE_SHARE)
+    minutes = entry.options.get(CONF_LINE_MINUTES, DEFAULT_LINE_MINUTES)
+    core.set_line_rule(share / 100, int(minutes))
+
+
 async def _async_options_updated(hass: HomeAssistant, entry: FactorioConfigEntry) -> None:
+    _apply_line_rule(entry.runtime_data.core, entry)
     await entry.runtime_data.provider.async_send_config(build_config(entry.options))
 
 

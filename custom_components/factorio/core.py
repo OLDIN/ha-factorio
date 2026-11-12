@@ -9,7 +9,15 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
-from .const import CATEGORIES, EVENT_WINDOW_MINUTES, MAX_RECENT_EVENTS, PROTOCOL_VERSION
+from .const import (
+    CATEGORIES,
+    DEFAULT_LINE_MINUTES,
+    DEFAULT_LINE_SHARE,
+    EVENT_WINDOW_MINUTES,
+    MAX_RECENT_EVENTS,
+    PROTOCOL_VERSION,
+)
+from .lines import TICKS_PER_MINUTE, DrillTracker, LineTracker
 from .providers.base import ProviderMessage
 
 
@@ -28,6 +36,10 @@ def as_list(value: Any) -> list:
     return value if isinstance(value, list) else []
 
 
+def _is_tick(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 class FactorioCore:
     def __init__(self, server_id: str) -> None:
         self.server_id = server_id
@@ -39,6 +51,10 @@ class FactorioCore:
         self._events: deque[tuple[Any, dict[str, Any]]] = deque(maxlen=MAX_RECENT_EVENTS)
         self._listeners: list[Callable[[], None]] = []
         self._event_listeners: list[Callable[[str, dict[str, Any]], None]] = []
+        self._lines = LineTracker()
+        self._drills = DrillTracker()
+        self._line_share = DEFAULT_LINE_SHARE / 100
+        self._line_hold_ticks = DEFAULT_LINE_MINUTES * TICKS_PER_MINUTE
 
     # --- input --------------------------------------------------------------
 
@@ -50,21 +66,71 @@ class FactorioCore:
         elif msg.kind == "hello" and isinstance(msg.payload, dict):
             self._hello = msg.payload
         elif msg.kind == "data" and isinstance(msg.payload, dict) and isinstance(msg.payload.get("category"), str):
+            category = msg.payload["category"]
             data = msg.payload.get("data")
+            tick = msg.payload.get("tick")
             if isinstance(data, dict):
-                self._categories[msg.payload["category"]] = data
+                self._categories[category] = data
             else:
-                self._categories.pop(msg.payload["category"], None)
+                self._categories.pop(category, None)
+            events = self._track_category(category, data if isinstance(data, dict) else None, tick)
+            self._emit(events, notify=False)  # the generic notification below covers it
+        elif msg.kind == "tick" and isinstance(msg.payload, dict) and _is_tick(msg.payload.get("tick")):
+            self._handle_clock(msg.payload["tick"])
+            return
         elif msg.kind == "event" and isinstance(msg.payload, dict) and isinstance(msg.payload.get("event"), str):
             data = msg.payload.get("data")
-            self._remember_event(msg.payload["event"], msg.payload.get("time"), data)
-            for listener in list(self._event_listeners):
-                listener(msg.payload["event"], data if isinstance(data, dict) else {})
+            self._publish_event(msg.payload["event"], msg.payload.get("time"), data)
             return
         else:
             return
         for listener in list(self._listeners):
             listener()
+
+    def _track_category(self, category: str, data: dict | None, tick: Any) -> list[tuple[str, dict[str, Any]]]:
+        """Feed the line and drill trackers; a category that went away resets its tracker."""
+        if category == "machines":
+            if data is None:
+                self._lines.reset()
+            elif _is_tick(tick):
+                return self._lines.update(as_dict(data.get("by_planet")), tick, self._line_share, self._line_hold_ticks)
+        elif category == "drills":
+            if data is None:
+                self._drills.reset()
+            elif _is_tick(tick):
+                return self._drills.update(as_dict(data.get("by_planet")), tick)
+        return []
+
+    def _handle_clock(self, tick: int) -> None:
+        """The game clock advances the hold time even when no category changes."""
+        machines = self.category("machines")
+        if machines is None:
+            return
+        before = self._all_problems()
+        events = self._lines.update(as_dict(machines.get("by_planet")), tick, self._line_share, self._line_hold_ticks)
+        self._emit(events, notify=bool(events) or self._all_problems() != before)
+
+    def _all_problems(self) -> dict[str, list[dict]]:
+        planets = as_dict(as_dict(self.category("machines")).get("by_planet"))
+        return {planet: self._lines.problems(planet) for planet in planets}
+
+    def _emit(self, events: list[tuple[str, dict[str, Any]]], notify: bool = True) -> None:
+        now = dt_util.utcnow().isoformat()
+        for name, data in events:
+            self._publish_event(name, now, data)
+        if notify:
+            for listener in list(self._listeners):
+                listener()
+
+    def _publish_event(self, name: str, time: Any, data: Any) -> None:
+        self._remember_event(name, time, data)
+        for listener in list(self._event_listeners):
+            listener(name, data if isinstance(data, dict) else {})
+
+    def set_line_rule(self, share: float, minutes: int) -> None:
+        """A line is a problem when `share` (0..1) of a group stands for `minutes` of game time."""
+        self._line_share = share
+        self._line_hold_ticks = minutes * TICKS_PER_MINUTE
 
     # --- subscriptions --------------------------------------------------------
 
@@ -155,6 +221,27 @@ class FactorioCore:
             "walls_damaged": as_dict(entry.get("walls_damaged")),
             "attack": as_dict(attack) if isinstance(attack, dict | list) else None,
         }
+
+    def machines(self, planet: str) -> dict | None:
+        entry = self._planet_entry("machines", planet)
+        if entry is None:
+            return None
+        return {"total": entry.get("total"), "working": entry.get("working")}
+
+    def problem_lines(self, planet: str) -> list[dict] | None:
+        if self._planet_entry("machines", planet) is None:
+            return None
+        return self._lines.problems(planet)
+
+    def drills(self, planet: str) -> dict | None:
+        entry = self._planet_entry("drills", planet)
+        if entry is None:
+            return None
+        return {"total": entry.get("total"), "working": entry.get("working"), "by_resource": as_dict(entry.get("by_resource"))}
+
+    def _planet_entry(self, category: str, planet: str) -> dict | None:
+        entry = as_dict(as_dict(self.category(category)).get("by_planet")).get(planet)
+        return as_dict(entry) if isinstance(entry, dict | list) else None
 
     @property
     def recent_events(self) -> list[dict]:

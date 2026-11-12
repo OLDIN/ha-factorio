@@ -8,10 +8,28 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
-from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+)
 from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 
-from .const import CATEGORIES, CONF_PROVIDER, CONF_SERVER_ID, DOMAIN, PROVIDER_MQTT, PROVIDERS, TOPIC_PREFIX
+from .const import (
+    CATEGORIES,
+    CONF_LINE_MINUTES,
+    CONF_LINE_SHARE,
+    CONF_PROVIDER,
+    CONF_SERVER_ID,
+    DEFAULT_LINE_MINUTES,
+    DEFAULT_LINE_SHARE,
+    DOMAIN,
+    PROVIDER_MQTT,
+    PROVIDERS,
+    TOPIC_PREFIX,
+)
 
 SERVER_ID_RE = re.compile(r"^[a-z0-9_-]+$")
 
@@ -22,6 +40,30 @@ def _categories_schema(current: dict[str, Any]) -> vol.Schema:
 
 def _categories(user_input: dict[str, Any]) -> dict[str, bool]:
     return {c: bool(user_input.get(c, True)) for c in CATEGORIES}
+
+
+def _number(minimum: int, maximum: int, unit: str) -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(min=minimum, max=maximum, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement=unit)
+    )
+
+
+def _options_schema(current: dict[str, Any]) -> vol.Schema:
+    """The categories plus the line problem rule, which lives only in the options."""
+    return _categories_schema(current).extend(
+        {
+            vol.Optional(CONF_LINE_SHARE, default=current.get(CONF_LINE_SHARE, DEFAULT_LINE_SHARE)): _number(10, 100, "%"),
+            vol.Optional(CONF_LINE_MINUTES, default=current.get(CONF_LINE_MINUTES, DEFAULT_LINE_MINUTES)): _number(1, 60, "min"),
+        }
+    )
+
+
+def _options(user_input: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_categories(user_input),
+        CONF_LINE_SHARE: int(user_input.get(CONF_LINE_SHARE, DEFAULT_LINE_SHARE)),
+        CONF_LINE_MINUTES: int(user_input.get(CONF_LINE_MINUTES, DEFAULT_LINE_MINUTES)),
+    }
 
 
 class FactorioConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -90,5 +132,5 @@ class FactorioConfigFlow(ConfigFlow, domain=DOMAIN):
 class FactorioOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(data=_categories(user_input))
-        return self.async_show_form(step_id="init", data_schema=_categories_schema(dict(self.config_entry.options)))
+            return self.async_create_entry(data=_options(user_input))
+        return self.async_show_form(step_id="init", data_schema=_options_schema(dict(self.config_entry.options)))

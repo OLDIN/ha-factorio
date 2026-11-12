@@ -21,7 +21,7 @@ STATE = {
     "game_state_since": "2026-11-11T10:00:00+00:00", "tick": 300,
     "players_online": 1, "data": {"players": {"online": ["alice"]}},
 }
-CONFIG_ALL_ON = '{"v":1,"categories":{"players":true,"planets":true,"defense":true,"evolution":true,"research":true}}'
+CONFIG_ALL_ON = '{"v":1,"categories":{"players":true,"planets":true,"defense":true,"evolution":true,"research":true,"machines":true,"drills":true}}'
 CONFIG_PLAYERS_OFF = CONFIG_ALL_ON.replace('"players":true', '"players":false')
 ENTITIES = [
     "binary_sensor.factorio_main_connection",
@@ -254,3 +254,48 @@ async def test_removing_the_last_server_drops_the_cards_resource(hass: HomeAssis
     await hass.config_entries.async_remove(second.entry_id)
     await hass.async_block_till_done()
     assert ours() == []
+
+
+MACHINES = {"by_planet": {"nauvis": {"total": 200, "working": 160, "groups": [
+    {"recipe": "iron-plate", "total": 100, "working": 60, "no_input": 40, "output_full": 0, "no_power": 0, "at": [[1, 2]]}]}}}
+
+
+async def test_machines_data_and_tick_topic_raise_line_problem(hass: HomeAssistant, mqtt_mock):
+    bus = async_capture_events(hass, "factorio_line_problem")
+    entry = await setup_entry(hass)
+    core = entry.runtime_data.core
+    await fire(hass, "factorio/main/data/machines", {"v": 1, "tick": 1000, "data": MACHINES})
+    assert core.machines("nauvis") == {"total": 200, "working": 160}
+    assert bus == []
+    await fire(hass, "factorio/main/tick", {"v": 1, "tick": 8200})
+    assert [e.data["recipe"] for e in bus] == ["iron-plate"]
+    assert bus[0].data["server_id"] == "main"
+    assert hass.states.get("event.factorio_main_game_events").attributes["event_type"] == "line_problem"
+    assert core.problem_lines("nauvis")[0]["minutes"] == 2
+
+
+async def test_tick_topic_ignores_bad_payloads(hass: HomeAssistant, mqtt_mock, caplog):
+    entry = await setup_entry(hass)
+    core = entry.runtime_data.core
+    await fire(hass, "factorio/main/data/machines", {"v": 1, "tick": 1000, "data": MACHINES})
+    for bad in ("{not json", "", '{"v":1,"tick":"x"}', '{"v":1,"tick":true}', "[1]", '{"v":1}'):
+        await fire(hass, "factorio/main/tick", bad)
+    assert core.problem_lines("nauvis") == []
+    assert "Ignored invalid JSON on factorio/main/tick" in caplog.text
+    await fire(hass, "factorio/main/tick", {"v": 1, "tick": 8200})
+    assert len(core.problem_lines("nauvis")) == 1
+
+
+async def test_options_set_the_line_rule(hass: HomeAssistant, mqtt_mock):
+    entry = await setup_entry(hass, options={"line_problem_share": 50, "line_problem_minutes": 1})
+    core = entry.runtime_data.core
+    await fire(hass, "factorio/main/data/machines", {"v": 1, "tick": 0, "data": MACHINES})
+    await fire(hass, "factorio/main/tick", {"v": 1, "tick": 7200})
+    assert core.problem_lines("nauvis") == []  # 40% < 50%
+    hass.config_entries.async_update_entry(entry, options={"line_problem_share": 30, "line_problem_minutes": 1})
+    await hass.async_block_till_done()
+    await fire(hass, "factorio/main/data/machines", {"v": 1, "tick": 7300, "data": MACHINES})
+    await fire(hass, "factorio/main/tick", {"v": 1, "tick": 7300 + 3600})
+    assert len(core.problem_lines("nauvis")) == 1
+    # the rule itself is not part of what the game is told to collect
+    assert not any("line_problem" in call[1] for call in published(mqtt_mock))
