@@ -30,16 +30,16 @@ class FactorioStubCard extends LitElement {
   }
 }
 
-class FactorioSpaceCard extends FactorioStubCard {
-  protected heading = "Factorio space (coming soon)";
+class FactorioMapCard extends FactorioStubCard {
+  protected heading = "Factorio system map (coming soon)";
 }
-class FactorioDefenseCard extends FactorioStubCard {
-  protected heading = "Factorio defense (coming soon)";
+class FactorioTimelineCard extends FactorioStubCard {
+  protected heading = "Factorio last hour (coming soon)";
 }
 
 const CARDS = [
-  { type: "factorio-space-card", ctor: FactorioSpaceCard, name: "Factorio space", description: "Planets and research of a Factorio server" },
-  { type: "factorio-defense-card", ctor: FactorioDefenseCard, name: "Factorio defense", description: "Attacks, turrets and evolution of a Factorio server" },
+  { type: "factorio-map-card", ctor: FactorioMapCard, name: "Factorio system map", description: "Planets, research and defense of a Factorio server on a system map" },
+  { type: "factorio-timeline-card", ctor: FactorioTimelineCard, name: "Factorio last hour", description: "Timeline of the last hour on a Factorio server" },
 ];
 
 window.customCards = window.customCards ?? [];

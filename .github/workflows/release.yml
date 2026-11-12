@@ -82,6 +82,14 @@ jobs:
           git tag -a "$TAG" -m "Release $VERSION"
           git push origin "refs/tags/$TAG"
 
+      - name: Check out the tagged commit
+        # The zip must contain exactly what the tag points to, not whatever main
+        # holds now (manual dispatch or a re-run after later commits).
+        if: steps.check.outputs.asset == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: git checkout --detach "refs/tags/$TAG"
+
       - name: Set up Node
         if: steps.check.outputs.asset == 'false'
         uses: actions/setup-node@v6
