@@ -26,6 +26,7 @@ async def async_setup_entry(
             GameStateSensor(entry),
             PlayersOnlineSensor(entry),
             BodiesSensor(entry),
+            PlatformsSensor(entry),
             ResearchSensor(entry),
             RecentEventsSensor(entry),
         ]
@@ -98,6 +99,24 @@ class BodiesSensor(FactorioEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"bodies": self._core.bodies}
+
+
+class PlatformsSensor(FactorioEntity, SensorEntity):
+    """How many space platforms there are; the platforms card and the map read the list."""
+
+    _unrecorded_attributes = frozenset({"platforms"})
+
+    def __init__(self, entry: FactorioConfigEntry) -> None:
+        super().__init__(entry, Platform.SENSOR, "platforms")
+
+    @property
+    def native_value(self) -> int | None:
+        platforms = self._core.platforms()
+        return None if platforms is None else len(platforms)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"platforms": self._core.platforms() or []}
 
 
 class ResearchSensor(FactorioEntity, SensorEntity):

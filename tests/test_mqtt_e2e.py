@@ -21,7 +21,7 @@ STATE = {
     "game_state_since": "2026-11-11T10:00:00+00:00", "tick": 300,
     "players_online": 1, "data": {"players": {"online": ["alice"]}},
 }
-CONFIG_ALL_ON = '{"v":1,"categories":{"players":true,"planets":true,"defense":true,"evolution":true,"research":true,"machines":true,"drills":true},"lines":{"output_full":false}}'
+CONFIG_ALL_ON = '{"v":1,"categories":{"players":true,"planets":true,"defense":true,"evolution":true,"research":true,"machines":true,"drills":true,"platforms":true},"lines":{"output_full":false}}'
 CONFIG_PLAYERS_OFF = CONFIG_ALL_ON.replace('"players":true', '"players":false')
 ENTITIES = [
     "binary_sensor.factorio_main_connection",

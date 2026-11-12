@@ -42,7 +42,7 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, mqtt_mock):
     assert result["title"] == "Factorio main"
     assert result["data"] == DATA
     assert result["options"] == dict.fromkeys(CATEGORIES, True)
-    assert {"machines", "drills"} <= set(CATEGORIES)
+    assert {"machines", "drills", "platforms"} <= set(CATEGORIES)
 
 
 async def test_user_flow_rejects_bad_server_id(hass: HomeAssistant, mqtt_mock):
@@ -118,5 +118,6 @@ async def test_options_flow_has_all_categories(hass: HomeAssistant, mqtt_mock):
         rule = ["line_problem_share", "line_problem_minutes", "line_problem_output_full"]
         assert sorted(options["data"]) == sorted([*CATEGORIES, *rule]), name
         assert sorted(options["data_description"]) == sorted(rule), name
-        for event in ("line_problem", "line_recovered", "drills_depleted"):
+        for event in ("line_problem", "line_recovered", "drills_depleted",
+                      "platform_departed", "platform_arrived", "platform_damaged"):
             assert event in strings["entity"]["event"]["game_events"]["state_attributes"]["event_type"]["state"], name

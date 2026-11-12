@@ -21,8 +21,11 @@ EVENT_TYPES = [
     "line_problem",
     "line_recovered",
     "drills_depleted",
+    "platform_departed",
+    "platform_arrived",
+    "platform_damaged",
 ]
-CATEGORIES = ["players", "planets", "defense", "evolution", "research", "machines", "drills"]
+CATEGORIES = ["players", "planets", "defense", "evolution", "research", "machines", "drills", "platforms"]
 CONF_LINE_SHARE = "line_problem_share"  # percent of a group that stands
 CONF_LINE_MINUTES = "line_problem_minutes"  # game minutes
 CONF_LINE_OUTPUT_FULL = "line_problem_output_full"  # does "output full" count as standing?

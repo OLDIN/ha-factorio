@@ -86,11 +86,11 @@ def test_listeners_notified_on_change_and_unsubscribe_works():
 
 
 def test_build_config_defaults_on():
-    assert build_config({}) == {"v": 1, "categories": {"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True},
+    assert build_config({}) == {"v": 1, "categories": {"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True, "platforms": True},
                                 "lines": {"output_full": False}}
 
 
-    assert build_config({"players": False})["categories"] == {**{"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True}, "players": False}
+    assert build_config({"players": False})["categories"] == {**{"players": True, "planets": True, "defense": True, "evolution": True, "research": True, "machines": True, "drills": True, "platforms": True}, "players": False}
 
 
 def test_build_config_passes_the_output_full_rule():
@@ -384,3 +384,74 @@ def test_redelivered_retained_machines_data_keeps_the_problem():
     assert seen and all(snapshot == before for snapshot in seen)  # no flap seen by listeners
     clock(core, 50300)
     assert events == []
+
+
+# --- platforms (stage 2c) --------------------------------------------------------
+
+PLATFORMS = {"list": [
+    {"index": 3, "name": "Hauler 2", "state": "on_the_path",
+     "route": {"from": "fulgora", "to": "gleba", "progress": 0.62},
+     "damage": {"active": True, "since_tick": 5, "losses": {"transport-belt": 2}}},
+    {"index": 5, "name": "Science", "state": "waiting_for_departure", "location": "nauvis"},
+]}
+
+
+def platforms(core: FactorioCore, payload, tick: int = 5) -> None:
+    feed(core, "data", {"category": "platforms", "data": payload, "tick": tick})
+
+
+def platform_machines(stopped: int = 50) -> dict:
+    groups = [{"recipe": "thruster-fuel", "total": 10, "working": 10 - stopped // 10, "no_input": stopped // 10,
+               "output_full": 0, "no_power": 0, "at": []}]
+    return {"by_planet": {}, "by_platform": {"3": {"name": "Hauler 2", "total": 40, "working": 35, "groups": groups}}}
+
+
+def test_platforms_list_with_route_location_and_damage():
+    core = FactorioCore("main")
+    assert core.platforms() is None
+    platforms(core, PLATFORMS)
+    hauler, science = core.platforms()
+    assert hauler == {"index": 3, "name": "Hauler 2", "state": "on_the_path", "location": None,
+                      "route": {"from": "fulgora", "to": "gleba", "progress": 0.62},
+                      "damage": {"active": True, "since_tick": 5, "losses": {"transport-belt": 2}},
+                      "lines": [], "lines_more": 0}
+    assert science["location"] == "nauvis" and science["route"] is None and science["damage"] is None
+
+
+def test_platforms_empty_lua_tables():
+    core = FactorioCore("main")
+    platforms(core, {"list": {}})
+    assert core.platforms() == []
+    platforms(core, {"list": [{"index": 1, "name": "X", "state": "paused", "damage": {"active": False, "losses": []}}, "junk"]})
+    assert core.platforms()[0]["damage"]["losses"] == {}
+    machines(core, {"by_planet": [], "by_platform": []}, 10)  # Lua: empty tables as []
+    assert core.platforms()[0]["lines"] == []
+
+
+def test_platform_line_problem_event_names_the_platform():
+    core = FactorioCore("main")
+    events, _ = collect(core)
+    platforms(core, PLATFORMS)
+    machines(core, platform_machines(), 1000)
+    clock(core, 1000 + 2 * TICKS_PER_MINUTE)
+    assert [e[0] for e in events] == ["line_problem"]
+    data = events[0][1]
+    assert data["platform"] == 3 and data["platform_name"] == "Hauler 2" and "planet" not in data
+    assert data["recipe"] == "thruster-fuel"
+    line = core.platforms()[0]["lines"][0]
+    assert (line["recipe"], line["reason"], line["minutes"]) == ("thruster-fuel", "no_input", 2)
+    assert "positions" not in line  # the card never shows them
+    assert core.problem_lines("3") is None  # platform lines never leak into planet sensors
+    machines(core, platform_machines(0), 1000 + 4 * TICKS_PER_MINUTE)
+    clock(core, 1000 + 6 * TICKS_PER_MINUTE)
+    assert events[-1][0] == "line_recovered" and events[-1][1]["platform"] == 3
+
+
+def test_platform_lines_reset_when_machines_go_away():
+    core = FactorioCore("main")
+    platforms(core, PLATFORMS)
+    machines(core, platform_machines(), 1000)
+    clock(core, 1000 + 2 * TICKS_PER_MINUTE)
+    assert core.platforms()[0]["lines"]
+    machines(core, None, None)
+    assert core.platforms()[0]["lines"] == []

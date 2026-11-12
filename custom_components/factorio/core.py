@@ -46,6 +46,30 @@ def _is_tick(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+PLATFORM_LINES = 2  # problem lines per platform in the platforms list: what the card shows
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _route(value: Any) -> dict[str, Any] | None:
+    route = as_dict(value)
+    start, end, progress = _text(route.get("from")), _text(route.get("to")), route.get("progress")
+    if start is None or end is None:
+        return None
+    share = float(progress) if isinstance(progress, (int, float)) and not isinstance(progress, bool) else 0.0
+    return {"from": start, "to": end, "progress": min(1.0, max(0.0, share))}
+
+
+def _damage(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    since = value.get("since_tick")
+    return {"active": value.get("active") is True, "since_tick": since if _is_tick(since) else None,
+            "losses": as_dict(value.get("losses"))}
+
+
 class FactorioCore:
     def __init__(self, server_id: str) -> None:
         self.server_id = server_id
@@ -58,6 +82,7 @@ class FactorioCore:
         self._listeners: list[Callable[[], None]] = []
         self._event_listeners: list[Callable[[str, dict[str, Any]], None]] = []
         self._lines = LineTracker()
+        self._platform_lines = LineTracker()  # keyed by the platform index as a string
         self._drills = DrillTracker()
         self._line_share = DEFAULT_LINE_SHARE / 100
         self._line_hold_ticks = DEFAULT_LINE_MINUTES * TICKS_PER_MINUTE
@@ -99,15 +124,9 @@ class FactorioCore:
         if category == "machines":
             if data is None:
                 self._lines.reset()
+                self._platform_lines.reset()
             elif _is_tick(tick):
-                return self._lines.update(
-                    as_dict(data.get("by_planet")),
-                    tick,
-                    self._line_share,
-                    self._line_hold_ticks,
-                    from_clock=False,
-                    output_full=self._line_output_full,
-                )
+                return self._update_lines(data, tick, from_clock=False)
         elif category == "drills":
             if data is None:
                 self._drills.reset()
@@ -121,19 +140,33 @@ class FactorioCore:
         if machines is None:
             return
         before = self._all_problems()
-        events = self._lines.update(
-            as_dict(machines.get("by_planet")),
-            tick,
-            self._line_share,
-            self._line_hold_ticks,
-            from_clock=True,
-            output_full=self._line_output_full,
-        )
+        events = self._update_lines(machines, tick, from_clock=True)
         self._emit(events, notify=bool(events) or self._all_problems() != before)
 
+    def _update_lines(self, machines: dict, tick: int, *, from_clock: bool) -> list[tuple[str, dict[str, Any]]]:
+        """Both line trackers: planets, and platforms (whose events name the platform, not a planet)."""
+        rule = (self._line_share, self._line_hold_ticks)
+        events = self._lines.update(
+            as_dict(machines.get("by_planet")), tick, *rule, from_clock=from_clock, output_full=self._line_output_full
+        )
+        by_platform = as_dict(machines.get("by_platform"))
+        for name, data in self._platform_lines.update(
+            by_platform, tick, *rule, from_clock=from_clock, output_full=self._line_output_full
+        ):
+            payload = dict(data)
+            key = payload.pop("planet", None)
+            if not isinstance(key, str) or not key.isdigit():
+                continue
+            platform_name = as_dict(by_platform.get(key)).get("name")
+            events.append((name, {"platform": int(key), "platform_name": platform_name if isinstance(platform_name, str) else "", **payload}))
+        return events
+
     def _all_problems(self) -> dict[str, list[dict]]:
-        planets = as_dict(as_dict(self.category("machines")).get("by_planet"))
-        return {planet: self._lines.problems(planet) for planet in planets}
+        machines = as_dict(self.category("machines"))
+        problems = {planet: self._lines.problems(planet) for planet in as_dict(machines.get("by_planet"))}
+        for key in as_dict(machines.get("by_platform")):
+            problems[f"@{key}"] = self._platform_lines.problems(key)
+        return problems
 
     def _emit(self, events: list[tuple[str, dict[str, Any]]], notify: bool = True) -> None:
         now = dt_util.utcnow().isoformat()
@@ -267,6 +300,33 @@ class FactorioCore:
         if entry is None:
             return None
         return {"total": entry.get("total"), "working": entry.get("working"), "by_resource": as_dict(entry.get("by_resource"))}
+
+    def platforms(self) -> list[dict] | None:
+        """Space platforms for the cards: where each is or flies, damage, and its worst problem lines."""
+        data = self.category("platforms")
+        if data is None:
+            return None
+        out = []
+        for item in as_list(data.get("list")):
+            if not isinstance(item, dict) or not _is_tick(item.get("index")):
+                continue
+            index = item["index"]
+            lines = [
+                {k: v for k, v in line.items() if k != "positions"} for line in self._platform_lines.problems(str(index))
+            ]
+            out.append(
+                {
+                    "index": index,
+                    "name": _text(item.get("name")) or "",
+                    "state": _text(item.get("state")),
+                    "location": _text(item.get("location")),
+                    "route": _route(item.get("route")),
+                    "damage": _damage(item.get("damage")),
+                    "lines": lines[:PLATFORM_LINES],
+                    "lines_more": max(0, len(lines) - PLATFORM_LINES),
+                }
+            )
+        return out
 
     def _planet_entry(self, category: str, planet: str) -> dict | None:
         entry = as_dict(as_dict(self.category(category)).get("by_planet")).get(planet)
