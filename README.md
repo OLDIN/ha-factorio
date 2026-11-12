@@ -79,9 +79,13 @@ appearing when the planet is built or reported by the defense / evolution data:
 | `sensor.factorio_<id>_<planet>_turrets_no_ammo` | turrets without ammo; attributes `total`, `no_power`, `positions` |
 | `sensor.factorio_<id>_<planet>_walls_damaged` | damaged walls and gates; attribute `positions` |
 | `sensor.factorio_<id>_<planet>_evolution` | enemy evolution, % |
+| `sensor.factorio_<id>_<planet>_machines_working` | working machines, %; attributes `total`, `working` |
+| `sensor.factorio_<id>_<planet>_problem_lines` | number of production lines that have been stopped for a while; attribute `lines` (recipe, machine counts, minutes stopped) |
+| `sensor.factorio_<id>_<planet>_drills_depleted` | mining drills that ran out of ore; attribute `by_resource` (`depleted`, `total`) |
 
 Event types: `player_joined`, `player_left`, `player_died`, `attack_started`,
-`attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`.
+`attack_ended`, `turrets_no_ammo`, `turrets_ok`, `research_finished`, `line_problem`,
+`line_recovered`, `drills_depleted`.
 
 The planets, defense, evolution, research and AFK/death data need
 factorio-ha-bridge relay and mod 0.2 or newer; with 0.1.x only the 0.1 entities exist.

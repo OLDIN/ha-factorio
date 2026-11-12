@@ -183,6 +183,33 @@
           }
         }
       },
+      "machines_working": {
+        "name": "Машини працюють",
+        "state_attributes": {
+          "total": {
+            "name": "Усього машин"
+          },
+          "working": {
+            "name": "Працює"
+          }
+        }
+      },
+      "problem_lines": {
+        "name": "Проблемні лінії",
+        "state_attributes": {
+          "lines": {
+            "name": "Лінії"
+          }
+        }
+      },
+      "drills_depleted": {
+        "name": "Вичерпані свердла",
+        "state_attributes": {
+          "by_resource": {
+            "name": "За ресурсами"
+          }
+        }
+      },
       "evolution": {
         "name": "Еволюція ворогів"
       }

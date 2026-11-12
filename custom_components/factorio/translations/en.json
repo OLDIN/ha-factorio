@@ -183,6 +183,33 @@
           }
         }
       },
+      "machines_working": {
+        "name": "Machines working",
+        "state_attributes": {
+          "total": {
+            "name": "Machines in total"
+          },
+          "working": {
+            "name": "Working"
+          }
+        }
+      },
+      "problem_lines": {
+        "name": "Problem lines",
+        "state_attributes": {
+          "lines": {
+            "name": "Lines"
+          }
+        }
+      },
+      "drills_depleted": {
+        "name": "Depleted drills",
+        "state_attributes": {
+          "by_resource": {
+            "name": "By resource"
+          }
+        }
+      },
       "evolution": {
         "name": "Enemy evolution"
       }
