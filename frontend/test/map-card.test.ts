@@ -46,14 +46,13 @@ describe("factorio-map-card", () => {
     expect(svgEl.getAttribute("role")).toBe("img");
     const aria = svgEl.getAttribute("aria-label")!;
     expect(aria).toContain("21 bodies in the system");
-    expect(aria).toContain("Attack on Nauvis: 2 min");
-    expect(aria).toContain("6 turrets without ammo");
-    expect(aria).toContain("12 damaged walls");
+    expect(aria).toContain("Nauvis: Attack · 2 min");
+    expect(aria).toContain("Turrets without ammo: 6");
+    expect(aria).toContain("Damaged walls: 12");
     expect(aria).toContain("Maraxsis: researching 62%");
     expect(root.querySelectorAll("circle.body")).toHaveLength(21);
-    // Only the attack keeps a callout; turrets and walls are in the popups (and the summary above).
-    expect(root.querySelectorAll("g.callout")).toHaveLength(1);
-    expect(root.querySelectorAll("g.callout.attack")).toHaveLength(1);
+    // No permanent callouts: the attack, turrets and walls are all in the popups (and the summary above).
+    expect(root.querySelectorAll("g.callout")).toHaveLength(0);
     expect([...root.querySelectorAll("circle.pulse")].map((c) => `${c.getAttribute("data-body")}:${c.classList[1]}`).sort()).toEqual([
       "corrundum:amber",
       "fulgora:amber",
@@ -63,7 +62,9 @@ describe("factorio-map-card", () => {
       "corrundum:1",
       "fulgora:1",
     ]);
-    expect([...root.querySelectorAll("circle.hit")].map((c) => c.getAttribute("data-body")).sort()).toEqual(["corrundum", "fulgora", "nauvis"]);
+    expect([...root.querySelectorAll("circle.hit")].map((c) => c.getAttribute("data-body")).sort()).toEqual([
+      "arig", "corrundum", "fulgora", "maraxsis", "nauvis", "ribbonia", "rubia",
+    ]); // every body with something to say; a built planet without data has nothing
     expect(root.querySelectorAll("circle.research")).toHaveLength(1);
     expect(root.querySelectorAll("circle.hazard")).toHaveLength(1);
     expect(root.querySelectorAll("text.label")).toHaveLength(21);
@@ -131,12 +132,12 @@ describe("factorio-map-card", () => {
     });
     const el = await mount({ server_id: "main" }, h);
     const root = el.shadowRoot!;
-    expect(root.querySelectorAll("g.callout")).toHaveLength(1);
+    expect(root.querySelectorAll("g.callout")).toHaveLength(0);
     expect(root.querySelector('circle.pulse.amber[data-body="gleba"]')).not.toBeNull();
     expect(root.querySelector('g.count[data-body="gleba"]')!.textContent!.trim()).toBe("1");
     const aria = root.querySelector("svg")!.getAttribute("aria-label")!;
-    expect(aria).toContain("Gleba: line stopped");
-    expect(aria).toContain("Scrap recycling: 31 of 48 stopped, output full, 11 min");
+    expect(aria).toContain("Gleba: Line stopped");
+    expect(aria).toContain("Scrap recycling: 31 of 48");
     const legend = root.querySelector("g.legend")!.textContent!;
     expect(legend).toContain("ring: share of machines without problems");
     expect(legend).toContain("pulse: problems — hover or tap");
@@ -148,15 +149,11 @@ describe("factorio-map-card", () => {
     uk.remove();
   });
 
-  it("caps the attack callout at five rows and says how many more", async () => {
-    const lines = Array.from({ length: 7 }, (_, i) => ({ recipe: `recipe-${i}`, reason: "no_input", stopped: 5, total: 10, minutes: 3 }));
-    const h = hass({ ...DASHBOARD, "sensor.factorio_main_nauvis_problem_lines": { state: "7", attributes: { lines } } });
-    const el = await mount({ server_id: "main" }, h);
-    const callout = el.shadowRoot!.querySelector("g.callout.attack")!.textContent!;
-    // Losses, position and 7 lines = 9 rows: the first five, then "4 more".
-    expect(callout).toContain("Recipe 2");
-    expect(callout).not.toContain("Recipe 3");
-    expect(callout).toContain("4 more");
+  it("keeps no permanent callout for an attack: it pulses and its popup carries the losses", async () => {
+    const el = await mount({ server_id: "main" }, hass(DASHBOARD));
+    const root = el.shadowRoot!;
+    expect(root.querySelector("g.callout.attack")).toBeNull();
+    expect(root.querySelector('circle.pulse.red[data-body="nauvis"]')).not.toBeNull();
     el.remove();
   });
 
@@ -181,7 +178,7 @@ describe("factorio-map-card", () => {
     el.remove();
   });
 
-  it("draws the space platforms: diamonds on routes and next to bodies, a callout for the damaged one", async () => {
+  it("draws the space platforms: diamonds on routes and next to bodies, a red pulse and a popup for the damaged one", async () => {
     const platforms = [
       { index: 1, name: "Science", state: "no_schedule", location: "nauvis", route: null, damage: null, lines: [], lines_more: 0 },
       { index: 2, name: "Hauler 1", state: "on_the_path", location: null, route: { from: "nauvis", to: "aquilo", progress: 0.3 },
@@ -194,15 +191,24 @@ describe("factorio-map-card", () => {
     const el = await mount({ server_id: "main" }, h);
     const root = el.shadowRoot!;
     expect(root.querySelectorAll("path.platform")).toHaveLength(4);
-    expect(root.querySelectorAll("path.platform.amber")).toHaveLength(1);
+    expect(root.querySelectorAll("path.platform.red")).toHaveLength(1);
     expect(root.querySelectorAll("path.platform.cyan")).toHaveLength(1);
     expect(root.querySelectorAll("path.proute")).toHaveLength(2);
-    const warnings = [...root.querySelectorAll("g.callout.warning")];
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0].textContent).toContain("«Hauler 2»: пошкоджена");
-    expect(warnings[0].textContent).toContain("втрачено Transport belt");
-    expect(root.querySelector("g.legend")!.textContent).toContain("ромб: платформа, жовтий — пошкоджена");
-    expect(root.querySelector("svg")!.getAttribute("aria-label")).toContain("«Hauler 2»: пошкоджена");
+    // No permanent callouts: the damaged platform pulses red, and its popup opens on a click.
+    expect(root.querySelectorAll("g.callout")).toHaveLength(0);
+    expect([...root.querySelectorAll("circle.pulse.diamond")].map((c) => c.getAttribute("class"))).toEqual(["pulse diamond red"]);
+    expect(root.querySelector("path.platform.red title")).toBeNull(); // a platform with a popup has no tooltip
+    expect(root.querySelector("path.platform.cyan title")!.textContent).toContain("«Hauler 1»");
+    expect(root.querySelector("g.legend")!.textContent).toContain("ромб: платформа, пульс — пошкодження або лінія");
+    expect(root.querySelector("svg")!.getAttribute("aria-label")).toContain("«Hauler 2»: Пошкоджена");
+    root.querySelector('circle.hit[data-platform="3"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    for (let i = 0; i < 5 && !(await el.updateComplete); i++);
+    const popup = root.querySelector<HTMLElement>(".popup")!;
+    expect(popup.dataset.key).toBe("#pf:3|top");
+    expect(popup.classList.contains("attack")).toBe(true);
+    expect(popup.querySelector(".ptitle")!.textContent).toBe("«Hauler 2»");
+    expect(popup.querySelector(".pchip")!.textContent).toBe("Пошкоджена");
+    expect(popup.textContent).toContain("Transport belt");
     el.remove();
   });
 
@@ -231,8 +237,10 @@ describe("factorio-map-card", () => {
       expect(p.dataset.key).toBe("gleba|top");
       expect(p.getAttribute("style")).not.toContain("hidden");
       expect(p.classList.contains("warning")).toBe(true);
-      expect(p.querySelector(".ptitle")!.textContent).toBe("Gleba: lines stopped (7)");
-      expect(p.querySelector(".pmachines")!.textContent!.trim()).toBe("5 of 10 machines OK");
+      expect(p.querySelector(".ptitle")!.textContent).toBe("Gleba");
+      expect(p.querySelector(".pchip.warning")!.textContent).toBe("Lines stopped · 7");
+      const first = p.querySelector(".frow")!;
+      expect([first.querySelector(".fl")!.textContent, first.querySelector(".fv")!.textContent]).toEqual(["Machines", "5 of 10"]);
       expect(el.shadowRoot!.querySelector("g.plead.warning")).not.toBeNull();
       hit(el, "gleba").dispatchEvent(new Event("pointerleave"));
       await wait(250);
@@ -253,17 +261,17 @@ describe("factorio-map-card", () => {
       el.remove();
     });
 
-    it("shows five rows and expands the rest without closing", async () => {
+    it("shows six rows and expands the rest without closing", async () => {
       const el = await mount({ server_id: "main" }, POPUP_STATES);
       hit(el, "gleba").dispatchEvent(new Event("pointerenter"));
       await settle(el);
-      expect(popup(el)!.querySelectorAll(".prow")).toHaveLength(5);
+      expect(popup(el)!.querySelectorAll(".frow")).toHaveLength(6); // of 8: machines and seven lines
       const more = popup(el)!.querySelector<HTMLButtonElement>("button.more")!;
       expect(more.textContent!.trim()).toBe("2 more");
       more.click();
       await settle(el);
       expect(popup(el)!.dataset.key).toBe("gleba|open");
-      expect(popup(el)!.querySelectorAll(".prow")).toHaveLength(7);
+      expect(popup(el)!.querySelectorAll(".frow")).toHaveLength(8);
       expect(popup(el)!.querySelector("button.more")!.textContent!.trim()).toBe("show less");
       el.remove();
     });
@@ -294,10 +302,103 @@ describe("factorio-map-card", () => {
       await settle(el);
       expect(popup(el)?.dataset.key).toBe("nauvis|top");
       expect(popup(el)!.classList.contains("attack")).toBe(true);
+      expect(popup(el)!.querySelector(".pstrip")).not.toBeNull(); // the hazard strip of an attack
 
       el.shadowRoot!.querySelector<HTMLElement>(".stage")!.click();
       await settle(el);
       expect(popup(el)).toBeNull();
+      el.remove();
+    });
+  });
+
+  describe("popups of what is fine", () => {
+    const FINE = hass(
+      {
+        ...DASHBOARD,
+        "sensor.factorio_main_vulcanus_evolution": { state: "12.4", attributes: {} },
+        "sensor.factorio_main_vulcanus_turrets_no_ammo": { state: "0", attributes: { total: 40, no_power: 0, positions: [] } },
+        "sensor.factorio_main_vulcanus_walls_damaged": { state: "0", attributes: { positions: [] } },
+        "sensor.factorio_main_vulcanus_drills_depleted": { state: "0", attributes: { by_resource: {} } },
+        "sensor.factorio_main_vulcanus_machines_working": { state: "100", attributes: { total: 80, working: 80, ok: 80 } },
+        "sensor.factorio_main_platforms": {
+          state: "2",
+          attributes: {
+            platforms: [
+              { index: 1, name: "Science", state: "no_schedule", location: "vulcanus", route: null, damage: null, lines: [], lines_more: 0 },
+              { index: 2, name: "Hauler 1", state: "on_the_path", location: null, route: { from: "nauvis", to: "aquilo", progress: 0.3 },
+                damage: null, lines: [], lines_more: 0 },
+            ],
+          },
+        },
+      },
+      "en",
+    );
+    async function open(el: FactorioMapCard, selector: string): Promise<HTMLElement> {
+      el.shadowRoot!.querySelector(selector)!.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+      for (let i = 0; i < 5 && !(await el.updateComplete); i++);
+      return el.shadowRoot!.querySelector<HTMLElement>(".popup")!;
+    }
+
+    const facts = (p: HTMLElement): string[][] => [...p.querySelectorAll(".frow")].map((r) => [r.querySelector(".fl")!.textContent!, r.querySelector(".fv")!.textContent!]);
+    const checks = (p: HTMLElement): string[] => [...p.querySelectorAll(".pchecks span")].map((c) => c.textContent!);
+
+    it("says how a healthy planet is: a table of facts, and a footer of the checks that passed", async () => {
+      const el = await mount({ server_id: "main" }, FINE);
+      expect(el.shadowRoot!.querySelector('circle.pulse[data-body="vulcanus"]')).toBeNull(); // nothing pulses
+      const p = await open(el, 'circle.hit[data-body="vulcanus"]');
+      expect(p.classList.contains("ok")).toBe(true);
+      expect(p.querySelector(".pstrip.ok")).not.toBeNull();
+      expect(p.querySelector(".pchip.ok")!.textContent).toBe("All well");
+      expect(p.querySelector(".ptitle")!.textContent).toBe("Vulcanus");
+      expect(facts(p)).toEqual([
+        ["Machines", "80 of 80"],
+        ["Enemy evolution", "12%"],
+        ["Turrets", "40"],
+        ["Platforms nearby", "1"],
+      ]);
+      expect(p.querySelectorAll(".meter i")).toHaveLength(1); // machines
+      expect(p.querySelectorAll(".segs i.on")).toHaveLength(2); // 12% of twenty cells
+      expect(checks(p)).toEqual(["Ammo in stock", "Walls intact", "Drills not depleted"]);
+      el.remove();
+    });
+
+    it("draws no divider under the title of a popup that has only the footer", async () => {
+      const el = await mount(
+        { server_id: "main" },
+        hass({ ...DASHBOARD, "sensor.factorio_main_paracelsin_walls_damaged": { state: "0", attributes: {} } }, "en"),
+      );
+      const p = await open(el, 'circle.hit[data-body="paracelsin"]');
+      expect(p.querySelector(".frow")).toBeNull();
+      expect(p.querySelector(".phead.bare")).not.toBeNull();
+      expect([...p.querySelectorAll(".pchecks span")].map((c) => c.textContent)).toEqual(["Walls intact"]);
+      el.remove();
+    });
+
+    it("says an unlocked planet is empty and a body being researched how far it is, without the lamp", async () => {
+      const el = await mount({ server_id: "main" }, FINE);
+      const arig = await open(el, 'circle.hit[data-body="arig"]');
+      expect(facts(arig)).toEqual([["State", "Unlocked, nothing built yet"]]);
+      expect(arig.querySelector(".pchip")).toBeNull();
+      expect(arig.querySelector(".pstrip")).toBeNull();
+      const maraxsis = await open(el, 'circle.hit[data-body="maraxsis"]');
+      expect(facts(maraxsis)).toEqual([["Research", "62%"]]);
+      expect(maraxsis.querySelectorAll(".segs i.on")).toHaveLength(12);
+      el.remove();
+    });
+
+    it("says where a healthy platform is, how far it has flown, and that it is undamaged", async () => {
+      const el = await mount({ server_id: "main" }, FINE);
+      const p = await open(el, 'circle.hit[data-platform="2"]');
+      expect(p.dataset.key).toBe("#pf:2|top");
+      expect(p.classList.contains("ok")).toBe(true);
+      expect(p.querySelector(".pdiamond")).not.toBeNull();
+      expect(facts(p)).toEqual([
+        ["State", "in flight"],
+        ["Route", "Nauvis → Aquilo"],
+        ["Progress", "30%"],
+      ]);
+      expect(checks(p)).toEqual(["No damage", "Lines fine"]);
+      expect(p.querySelector(".phead.bare")).toBeNull(); // it has a table
       el.remove();
     });
   });
