@@ -49,10 +49,10 @@ describe("readPlatforms", () => {
     });
   });
 
-  it("tones: damaged or with lines amber, flying cyan, the rest muted", () => {
+  it("tones: damaged red, with lines amber, flying cyan, the rest muted", () => {
     const rows = readPlatforms(states([...MOCKUP, platform(7, { lines: [LINE] })]), "main")!;
     const tone = (name: string): string => platformTone(rows.find((r) => r.name === name)!);
-    expect([tone("Hauler 2"), tone("Hauler 7"), tone("Hauler 1"), tone("Science")]).toEqual(["amber", "amber", "cyan", "muted"]);
+    expect([tone("Hauler 2"), tone("Hauler 7"), tone("Hauler 1"), tone("Science")]).toEqual(["red", "amber", "cyan", "muted"]);
   });
 
   it("is empty for an empty list, null without the sensor or its data", () => {
@@ -91,7 +91,7 @@ describe("factorio-platforms-card", () => {
     return el;
   }
 
-  it("draws the mockup: title with count, where each one is or flies, damage in amber", async () => {
+  it("draws the mockup: title with count, where each one is or flies, damage in red", async () => {
     const el = await mount(hass(states(MOCKUP)));
     const root = el.shadowRoot!;
     expect(root.querySelector("h2")!.textContent!.replace(/\s+/g, " ").trim()).toBe("Платформи 6");
@@ -101,7 +101,7 @@ describe("factorio-platforms-card", () => {
     expect(text(0)).toContain("«Hauler 2»");
     // formatLosses keeps the count with its item by a no-break space (text() above folds it into a space)
     expect(rows[0].querySelector(".damage")!.textContent).toBe("Пошкоджена: втрачено Transport belt\u00a0×2");
-    expect(rows[0].classList.contains("amber")).toBe(true);
+    expect(rows[0].classList.contains("red")).toBe(true);
     expect(rows[0].querySelector(".route")!.textContent).toContain("Фульгора");
     expect(rows[0].querySelector(".route")!.textContent).toContain("Глеба");
     expect(rows[0].querySelector<HTMLElement>(".fill")!.style.width).toBe("62%");

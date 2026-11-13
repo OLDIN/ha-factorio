@@ -1,21 +1,20 @@
-import { LitElement, css, html, nothing, svg, unsafeCSS, type PropertyValues, type SVGTemplateResult } from "lit";
+import { LitElement, css, html, nothing, svg, unsafeCSS, type PropertyValues, type SVGTemplateResult, type TemplateResult } from "lit";
 import { entityId, slug } from "../shared/entities";
 import { t, tn } from "../shared/i18n";
 import { bodyName } from "../shared/names";
 import { planetColor } from "../shared/palette";
 import { cardStyles, ensureFonts } from "../shared/theme";
 import { asDict, asList, type Hass, type HassState } from "../shared/types";
-import { machinesShare, readMachines, TOP_ROWS, type Machines } from "../shared/production";
-import { HAZARD_STRIP, collectAlerts, formatLosses, placeCallouts, type Callout, type CalloutInput } from "./callouts";
+import { machinesShare, readMachines, type Machines } from "../shared/production";
+import { collectAlerts, collectStatus, popupText, type Popup, type PopupFact } from "./popups";
 import { readPlatforms, type PlatformRow } from "../shared/platforms";
-import { placePlatforms, type PlatformsLayout } from "./platforms";
+import { hasProblem, placePlatforms, platformAlert, platformKey, platformPopup, type PlatformMark, type PlatformsLayout } from "./platforms";
 import { placePopup, type PopupPlace } from "./popup";
 import { mapHeight, type MapCardConfig } from "./config";
 import "./editor";
 import {
   LEGEND_ROW,
   labelFont,
-  labelRect,
   layoutBodies,
   legendLayout,
   sunGeometry,
@@ -23,6 +22,12 @@ import {
   type Placed,
   type Rect,
 } from "./layout";
+
+/** Rows of a popup's table shown before "N more". */
+const FACT_ROWS = 6;
+
+/** Pointer target (and popup anchor) of a platform diamond. */
+const DIAMOND_HIT = 11;
 
 /** Below this width the map keeps its layout and scrolls sideways (as the mockup does). */
 const MIN_WIDTH = 960;
@@ -73,15 +78,16 @@ interface View {
   height: number;
   bodies: Map<string, Body>;
   placed: Placed[];
-  callouts: Callout[];
   attacked: Set<string>;
   research: Map<string, number>;
   /** Share (0–100) of machines without problems per built planet that reports machines. */
   machines: ReadonlyMap<string, number>;
   /** The machine counts behind `machines`, for the popup. */
   counts: ReadonlyMap<string, Machines>;
-  /** Everything wrong with a body, as its popup shows it (attacks keep a callout on the map too). */
-  problems: ReadonlyMap<string, CalloutInput>;
+  /** Everything wrong with a body or platform, as its popup shows it. */
+  problems: ReadonlyMap<string, Popup>;
+  /** The popup of everything that has one: the problems above, and how the rest is. */
+  popups: ReadonlyMap<string, Popup>;
   sublabels: ReadonlyMap<string, string>;
   /** Space platforms: diamonds, routes and "+N". */
   platforms: PlatformsLayout;
@@ -114,7 +120,7 @@ export class FactorioMapCard extends LitElement {
   /** The body under the pointer and the one whose popup stays open after a click. */
   declare _hover: string | null;
   declare _pinned: string | null;
-  /** The popup shows every row, not only the first TOP_ROWS. */
+  /** The popup shows every row, not only the first FACT_ROWS. */
   declare _popupOpen: boolean;
   /** The popup as measured, for the body and expansion it was measured with. */
   declare _popupSize: { key: string; width: number; height: number } | null;
@@ -271,7 +277,12 @@ export class FactorioMapCard extends LitElement {
     const height = mapHeight(this._config);
     const width = Math.max(MIN_WIDTH, this._width || FALLBACK_WIDTH);
     const research = researchTargets(hass.states[entityId(sid, "sensor", "research")]);
-    const alerts = collectAlerts(hass.states, sid, bodies, lang, Date.now());
+    const counts = new Map<string, Machines>();
+    for (const b of bodies) {
+      const m = b.state === "built" ? readMachines(hass.states, sid, b.name) : null;
+      if (m) counts.set(b.name, m);
+    }
+    const alerts = collectAlerts(hass.states, sid, bodies, lang, Date.now(), counts);
     const attacked = new Set(alerts.filter((a) => a.tone === "attack").map((a) => a.body));
     const alerting = new Set(alerts.map((a) => a.body));
 
@@ -279,17 +290,12 @@ export class FactorioMapCard extends LitElement {
     for (const [name, progress] of research) sublabels.set(name, t(lang, "research_progress", { progress: Math.round(progress) }));
     // Machines without problems on built planets; research first when a body has both.
     const machines = new Map<string, number>();
-    const counts = new Map<string, Machines>();
-    for (const b of bodies) {
-      if (b.state !== "built") continue;
-      const m = readMachines(hass.states, sid, b.name);
-      if (!m) continue;
+    for (const [name, m] of counts) {
       const share = machinesShare(m);
-      machines.set(b.name, share);
-      counts.set(b.name, m);
+      machines.set(name, share);
       const label = t(lang, "machines_share", { percent: Math.round(share) });
-      const known = sublabels.get(b.name);
-      sublabels.set(b.name, known === undefined ? label : `${known} · ${label}`);
+      const known = sublabels.get(name);
+      sublabels.set(name, known === undefined ? label : `${known} · ${label}`);
     }
     const hidden = new Set<string>();
     if (this._config?.label_healthy === false)
@@ -314,44 +320,32 @@ export class FactorioMapCard extends LitElement {
         placed: layoutBodies(bodies, { width, height }, { sublabels, hidden, obstacles: [header, legendRect], title: (name) => bodyName(name, lang) }),
       };
     const placed = this._layout.placed;
-    // Only attacks keep a callout on the map; every problem is in the body's popup.
-    const permanent = alerts
-      .filter((a) => a.tone === "attack")
-      .map((a) =>
-        a.lines.length <= TOP_ROWS
-          ? a
-          : { ...a, lines: [...a.lines.slice(0, TOP_ROWS), { text: t(lang, "pl_more", { count: a.lines.length - TOP_ROWS }), tone: "muted" as const }] },
-      );
-    // Space platforms; a damaged one keeps a callout too, at the body it stands at or flies to.
+    // Every problem, of a body or of a platform, is in its popup; what pulses on the map is what has one.
     const platformRows = readPlatforms(hass.states, sid) ?? [];
-    const onMap = new Set(placed.map((p) => p.name));
     const platformName = (r: PlatformRow): string => t(lang, "pf_name", { name: r.name });
-    for (const r of platformRows) {
-      const anchor = r.location ?? r.route?.to ?? null;
-      if (!r.damage || anchor === null || !onMap.has(anchor)) continue;
-      const losses = formatLosses(r.damage.losses, lang);
-      permanent.push({
-        body: anchor,
-        tone: "warning",
-        title: t(lang, "pf_damaged_title", { name: platformName(r) }),
-        lines: losses ? [{ text: t(lang, "pf_lost", { list: losses }), tone: "text" }] : [],
-      });
-    }
     const platforms = placePlatforms(platformRows, placed, (r) =>
       r.route
         ? `${platformName(r)}: ${bodyName(r.route.from, lang)} → ${bodyName(r.route.to, lang)}`
         : `${platformName(r)}: ${bodyName(r.location ?? "", lang)}`,
     );
-    const callouts = placeCallouts(permanent, placed, {
-      width,
-      height,
-      top: { x0: header.x1 + 8, x1: width - 16 },
-      bottom: { x0: 16, x1: legendRect.x0 - 8 },
-      labels: placed.filter((p) => !hidden.has(p.name)).map((p) => labelRect(p, sublabels.get(p.name))),
-      sublabels,
-    });
+    const problems = new Map<string, Popup>(alerts.map((a) => [a.body, a]));
+    for (const r of platformRows) {
+      const alert = platformAlert(r, lang);
+      if (alert !== null && platforms.diamonds.some((d) => d.index === r.index)) problems.set(platformKey(r.index), alert);
+    }
 
-    const facts = [...alerts, ...permanent.filter((c) => c.tone === "warning")].map((a) => [a.title, ...a.lines.map((l) => l.text)].join(", "));
+    // The rest has a popup too, with facts instead of problems.
+    const popups = new Map<string, Popup>(problems);
+    const platformsAt = new Map<string, number>();
+    for (const r of platformRows) if (r.location !== null) platformsAt.set(r.location, (platformsAt.get(r.location) ?? 0) + 1);
+    const status = collectStatus(hass.states, sid, bodies, lang, { alerting, research, machines: counts, platformsAt });
+    for (const s of status) if (placed.some((p) => p.name === s.body)) popups.set(s.body, s);
+    for (const r of platformRows) {
+      const key = platformKey(r.index);
+      if (!popups.has(key) && platforms.diamonds.some((d) => d.index === r.index)) popups.set(key, platformPopup(r, lang));
+    }
+
+    const facts = [...problems.values()].map(popupText);
     for (const [name, progress] of research)
       facts.push(`${bodyName(name, lang)}: ${t(lang, "research_progress", { progress: Math.round(progress) })}`);
     const aria = [`${t(lang, "map_title")}: ${title}`, breakdown, ...facts].join(". ");
@@ -362,12 +356,12 @@ export class FactorioMapCard extends LitElement {
       height,
       bodies: new Map(bodies.map((b) => [b.name, b])),
       placed,
-      callouts,
       attacked,
       research,
       machines,
       counts,
-      problems: new Map(alerts.map((a) => [a.body, a])),
+      problems,
+      popups,
       sublabels,
       platforms,
       hidden,
@@ -400,12 +394,13 @@ export class FactorioMapCard extends LitElement {
             height=${v.height}
             viewBox="0 0 ${v.width} ${v.height}"
           >
-            ${this._defs()} ${this._backdrop(v)} ${this._routes(v)} ${v.callouts.map((c) => this._calloutLine(c))}
+            ${this._defs()} ${this._backdrop(v)} ${this._routes(v)}
             ${v.placed.filter((p) => p.parent === null).map((p) => this._body(v, p))}
             ${v.placed.filter((p) => p.parent !== null).map((p) => this._body(v, p))} ${this._platforms(v)}
-            ${v.placed.map((p) => this._label(v, p))} ${v.callouts.map((c) => this._callout(c))} ${this._header(v)}
-            ${this._legend(v)} ${popup?.measured && popup.place.line ? this._popupLead(popup.place.line, popup.problem.tone) : nothing}
-            ${v.placed.filter((p) => v.problems.has(p.name)).map((p) => this._hit(v, p))}
+            ${v.placed.map((p) => this._label(v, p))} ${this._header(v)}
+            ${this._legend(v)} ${popup?.measured && popup.place.line ? this._popupLead(popup.place.line, popup.content.tone) : nothing}
+            ${v.placed.filter((p) => v.popups.has(p.name)).map((p) => this._hit(v, p))}
+            ${v.platforms.diamonds.filter((d) => v.popups.has(platformKey(d.index))).map((d) => this._hitPlatform(d, v))}
           </svg>
           ${popup ? this._popup(v, popup) : nothing}
         </div>
@@ -414,60 +409,108 @@ export class FactorioMapCard extends LitElement {
   }
 
   /** Where the popup of the active body goes, from its measured size (or a guess while it is being measured). */
-  private _placePopup(v: View): { name: string; key: string; problem: CalloutInput; place: PopupPlace; measured: boolean } | null {
+  private _placePopup(v: View): { name: string; key: string; content: Popup; place: PopupPlace; measured: boolean } | null {
     const name = this._active();
-    const problem = name === null ? undefined : v.problems.get(name);
-    const p = name === null ? undefined : v.placed.find((b) => b.name === name);
-    if (name === null || !problem || !p) return null;
+    const content = name === null ? undefined : v.popups.get(name);
+    const anchor = name === null ? undefined : this._anchor(v, name);
+    if (name === null || !content || !anchor) return null;
     const key = `${name}|${this._popupOpen ? "open" : "top"}`;
     const measured = this._popupSize?.key === key;
     const size = measured ? this._popupSize! : POPUP_GUESS;
-    return { name, key, problem, measured, place: placePopup({ cx: p.cx, cy: p.cy, r: outerRadius(v, p) + 2 }, v, size) };
+    return { name, key, content, measured, place: placePopup(anchor, v, size) };
+  }
+
+  /** The circle a popup hangs on: a body with its rings, or the diamond of a platform. */
+  private _anchor(v: View, name: string): { cx: number; cy: number; r: number } | undefined {
+    const d = v.platforms.diamonds.find((m) => platformKey(m.index) === name);
+    if (d) return { cx: d.x, cy: d.y, r: DIAMOND_HIT };
+    const p = v.placed.find((b) => b.name === name);
+    return p && { cx: p.cx, cy: p.cy, r: outerRadius(v, p) + 2 };
   }
 
   private _popup(v: View, pop: NonNullable<ReturnType<FactorioMapCard["_placePopup"]>>) {
-    const { problem, place } = pop;
-    const m = v.counts.get(pop.name);
-    const rows = this._popupOpen ? problem.lines : problem.lines.slice(0, TOP_ROWS);
+    const { content, place } = pop;
     // Hidden at the corner until measured; then placed, its height capped to the map (it scrolls inside).
     const style = pop.measured
       ? `left:${place.x}px;top:${place.y}px;max-height:${place.height}px`
       : "left:0;top:0;visibility:hidden";
     return html`<div
-      class="popup ${problem.tone}"
+      class="popup ${content.tone}"
       data-key=${pop.key}
       style=${style}
       role="dialog"
-      aria-label=${problem.title}
+      aria-label=${content.title}
       @click=${(e: Event) => e.stopPropagation()}
       @pointerenter=${this._stay}
       @pointerleave=${this._leave}
     >
-      <div class="ptitle">${problem.title}</div>
-      ${m
-        ? html`<div class="pmachines">
-            ${m.ok === null ? tn(v.lang, "pl_machines", m.total, { working: m.working }) : tn(v.lang, "pl_machines_ok", m.total, { ok: m.ok })}
-          </div>`
-        : nothing}
-      ${rows.map((l) => html`<div class="prow ${l.tone}">${l.text}</div>`)}
-      ${problem.lines.length > TOP_ROWS
-        ? html`<button class="more" aria-expanded=${this._popupOpen ? "true" : "false"} @click=${this._toggleRows}>
-            ${this._popupOpen ? t(v.lang, "pl_less") : t(v.lang, "pl_more", { count: problem.lines.length - TOP_ROWS })}
-          </button>`
-        : nothing}
+      ${this._popupBody(v, content)}
     </div>`;
   }
 
-  private _popupLead(line: NonNullable<PopupPlace["line"]>, tone: CalloutInput["tone"]): SVGTemplateResult {
+  /** The strip, the title with its chip, the table of facts (the first few unless opened), the footer of checks that passed. */
+  private _popupBody(v: View, p: Popup): TemplateResult {
+    const mark =
+      p.swatch === "platform"
+        ? html`<svg class="pdiamond" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1 L13 7 L7 13 L1 7 Z"></path></svg>`
+        : html`<span class="pdot" style="background:${planetColor(p.body)}"></span>`;
+    // An "ok" popup wears the green strip only when everything is fine (it has the chip).
+    const strip = p.tone !== "ok" || p.chip !== null ? html`<div class="pstrip ${p.tone}"></div>` : nothing;
+    const collapsed = !this._popupOpen && p.facts.length > FACT_ROWS + 1;
+    const facts = collapsed ? p.facts.slice(0, FACT_ROWS) : p.facts;
+    return html`${strip}
+      <div class="phead ${facts.length === 0 ? "bare" : ""}">${mark}<span class="ptitle">${p.title}</span>${p.chip === null ? nothing : html`<span class="pchip ${p.tone}">${p.chip}</span>`}</div>
+      ${facts.length > 0
+        ? html`<div class="pfacts">
+            ${facts.map((f) => this._fact(f))}
+            ${p.facts.length > FACT_ROWS + 1
+              ? html`<button class="more" aria-expanded=${collapsed ? "false" : "true"} @click=${this._toggleRows}>
+                  ${collapsed ? t(v.lang, "pl_more", { count: p.facts.length - FACT_ROWS }) : t(v.lang, "pl_less")}
+                </button>`
+              : nothing}
+          </div>`
+        : nothing}
+      ${p.checks.length > 0 ? html`<div class="pchecks">${p.checks.map((c) => html`<span>${c}</span>`)}</div>` : nothing}`;
+  }
+
+  private _fact(f: PopupFact): TemplateResult {
+    const percent = f.bar ? Math.min(100, Math.max(0, f.bar.percent)) : 0;
+    const bar =
+      f.bar === undefined
+        ? nothing
+        : f.bar.style === "solid"
+          ? html`<div class="meter"><i style="width:${percent}%"></i></div>`
+          : html`<div class="segs">${Array.from({ length: 20 }, (_, i) => html`<i class=${i < Math.round(percent / 5) ? "on" : ""}></i>`)}</div>`;
+    const values = Array.isArray(f.value) ? f.value : [f.value];
+    return html`<div class="frow"><span class="fl">${f.label}</span><span class="fv ${f.bad ? "bad" : ""}">${values.map((x) => html`<span>${x}</span>`)}</span></div>
+      ${f.note === undefined ? nothing : html`<div class="fnote">${f.note}</div>`}${bar}`;
+  }
+
+  private _popupLead(line: NonNullable<PopupPlace["line"]>, tone: Popup["tone"]): SVGTemplateResult {
     return svg`<g class="lead plead ${tone}">
       <path d="M${line.x1} ${line.y1} L${line.x2} ${line.y2}"></path><circle cx=${line.x1} cy=${line.y1} r="2.5"></circle>
     </g>`;
   }
 
-  /** The pointer target of a body with problems: a little larger than everything drawn around it. */
+  /** The pointer target of a platform with a popup. */
+  private _hitPlatform(d: PlatformMark, v: View): SVGTemplateResult {
+    const key = platformKey(d.index);
+    return svg`<circle
+      class="hit ${v.popups.get(key)?.tone}"
+      data-platform=${d.index}
+      cx=${d.x}
+      cy=${d.y}
+      r=${DIAMOND_HIT}
+      @pointerenter=${() => this._enter(key)}
+      @pointerleave=${this._leave}
+      @click=${(e: Event) => this._pin(key, e)}
+    ></circle>`;
+  }
+
+  /** The pointer target of a body with a popup: a little larger than everything drawn around it. */
   private _hit(v: View, p: Placed): SVGTemplateResult {
     return svg`<circle
-      class="hit"
+      class="hit ${v.popups.get(p.name)?.tone}"
       data-body=${p.name}
       cx=${p.cx}
       cy=${p.cy}
@@ -546,10 +589,10 @@ export class FactorioMapCard extends LitElement {
     } else {
       parts.push(svg`<circle class="body locked" cx=${p.cx} cy=${p.cy} r=${p.r} stroke=${color}></circle>`);
     }
-    // How many problems a body has, on its upper right (attacks have their callout instead).
+    // How many problems a body has, on its upper right (an attack is marked by its hazard ring instead).
     const problem = v.problems.get(p.name);
     if (problem && problem.tone !== "attack") {
-      const n = problem.lines.length;
+      const n = problem.facts.filter((f) => f.bad).length;
       const text = n > BADGE_MAX ? `${BADGE_MAX}+` : String(n);
       const w = 10 + text.length * 6.5;
       const bx = p.cx + outerRadius(v, p) * Math.SQRT1_2;
@@ -568,9 +611,11 @@ export class FactorioMapCard extends LitElement {
 
   private _platforms(v: View): SVGTemplateResult {
     const S = 5.5; // half the diamond's diagonal
+    // A platform with a problem pulses and has a popup; the others tell where they are in a tooltip.
     return svg`${v.platforms.diamonds.map(
-      (d) => svg`<path class="platform ${d.tone}" data-platform=${d.index}
-        d="M${d.x} ${d.y - S} L${d.x + S} ${d.y} L${d.x} ${d.y + S} L${d.x - S} ${d.y} Z"><title>${d.title}</title></path>`,
+      (d) => svg`${hasProblem(d) ? svg`<circle class="pulse diamond ${d.tone}" data-platform=${d.index} cx=${d.x} cy=${d.y} r=${S + 4}></circle>` : nothing}
+      <path class="platform ${d.tone}" data-platform=${d.index}
+        d="M${d.x} ${d.y - S} L${d.x + S} ${d.y} L${d.x} ${d.y + S} L${d.x - S} ${d.y} Z">${hasProblem(d) ? nothing : svg`<title>${d.title}</title>`}</path>`,
     )}
     ${v.platforms.more.map((m) => svg`<text class="pmore" x=${m.x - 4} y=${m.y + 4}>+${m.count}</text>`)}`;
   }
@@ -592,26 +637,6 @@ export class FactorioMapCard extends LitElement {
               : "dim";
     return svg`<text class="label ${cls}" x=${p.label.x} y=${p.label.y} text-anchor=${p.label.anchor} font-size=${font}>${p.title ?? bodyName(p.name, v.lang)}</text>
       ${sub === undefined ? nothing : svg`<text class="sublabel" x=${p.label.x} y=${p.label.y + font + 3} text-anchor=${p.label.anchor} font-size=${font - 1}>${sub}</text>`}`;
-  }
-
-  private _calloutLine(c: Callout): SVGTemplateResult {
-    const { x1, y1, x2, y2 } = c.line;
-    return svg`<g class="lead ${c.tone}">
-      <path d="M${x1} ${y1} L${x2} ${y2}"></path><circle cx=${x1} cy=${y1} r="2.5"></circle>
-    </g>`;
-  }
-
-  private _callout(c: Callout): SVGTemplateResult {
-    const { x, y, width: w } = c;
-    const strip =
-      c.tone === "attack"
-        ? svg`<path d="M${x + 1} ${y + 1 + HAZARD_STRIP} V${y + 8} A7 7 0 0 1 ${x + 8} ${y + 1} H${x + w - 8} A7 7 0 0 1 ${x + w - 1} ${y + 8} V${y + 1 + HAZARD_STRIP} Z" fill="url(#fha-hz)"></path>`
-        : nothing;
-    return svg`<g class="callout ${c.tone}">
-      <rect class="box" x=${x} y=${y} width=${w} height=${c.height} rx="8"></rect>${strip}
-      <text class="ctitle" x=${x + 14} y=${c.baselines[0]}>${c.title}</text>
-      ${c.lines.map((l, i) => svg`<text class="cline ${l.tone}" x=${x + 14} y=${c.baselines[i + 1]}>${l.text}</text>`)}
-    </g>`;
   }
 
   private _header(v: View): SVGTemplateResult {
@@ -740,6 +765,10 @@ export class FactorioMapCard extends LitElement {
         transform-origin: center;
         animation: fha-pulse 2.4s ease-out infinite;
       }
+      .pulse.diamond {
+        --fha-pulse-to: 2.4;
+        stroke-width: 2;
+      }
       .pulse.red {
         stroke: var(--fha-red);
       }
@@ -753,7 +782,7 @@ export class FactorioMapCard extends LitElement {
         }
         70%,
         100% {
-          transform: scale(1.5);
+          transform: scale(var(--fha-pulse-to, 1.5));
           opacity: 0;
         }
       }
@@ -782,6 +811,9 @@ export class FactorioMapCard extends LitElement {
         pointer-events: all;
         cursor: pointer;
       }
+      .hit.ok:hover {
+        fill: rgb(255 255 255 / 0.06);
+      }
       .plead {
         pointer-events: none;
       }
@@ -797,6 +829,9 @@ export class FactorioMapCard extends LitElement {
         stroke: var(--fha-bg);
         stroke-width: 1.5;
         fill: var(--fha-faint);
+      }
+      .platform.red {
+        fill: var(--fha-red);
       }
       .platform.cyan {
         fill: var(--fha-cyan);
@@ -834,11 +869,51 @@ export class FactorioMapCard extends LitElement {
         background: var(--fha-amber-bg);
         border-color: var(--fha-amber-border);
       }
+      .popup.ok {
+        background: var(--fha-panel);
+        border-color: var(--fha-line);
+      }
+      .pstrip {
+        flex: none;
+        margin: -12px -14px 2px;
+      }
+      .pstrip.attack {
+        height: 7px;
+        background: repeating-linear-gradient(135deg, var(--fha-amber) 0 6px, var(--fha-bg) 6px 12px);
+      }
+      .pstrip.warning {
+        height: 3px;
+        background: var(--fha-amber);
+      }
+      .pstrip.ok {
+        height: 3px;
+        background: var(--fha-green);
+      }
+      .phead {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--fha-line);
+      }
+      .phead.bare {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+      .popup.attack .phead,
+      .popup.attack .pchecks {
+        border-color: #4a2028;
+      }
+      .popup.warning .phead,
+      .popup.warning .pchecks {
+        border-color: #4a3a14;
+      }
       .ptitle {
+        flex: 1;
+        margin: 0;
         font-family: Unbounded, "Golos Text", sans-serif;
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 600;
-        margin-bottom: 2px;
       }
       .popup.attack .ptitle {
         color: var(--fha-red-soft);
@@ -846,13 +921,119 @@ export class FactorioMapCard extends LitElement {
       .popup.warning .ptitle {
         color: var(--fha-amber-soft);
       }
-      .pmachines,
-      .prow.muted {
+      .pdot {
+        flex: none;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .pdiamond {
+        flex: none;
+        width: 14px;
+        height: 14px;
+        fill: var(--fha-cyan);
+      }
+      .pchip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 9px;
+        border-radius: 10px;
         font-size: 12px;
+        white-space: nowrap;
+      }
+      .pchip::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .pchip.attack {
+        background: var(--fha-red-chip);
+        color: var(--fha-red-soft);
+      }
+      .pchip.warning {
+        background: var(--fha-amber-chip);
+        color: var(--fha-amber-soft);
+      }
+      .pchip.ok {
+        background: var(--fha-green-bg);
+        color: var(--fha-green-soft);
+      }
+      .frow {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        padding: 3px 0;
+      }
+      .fl {
+        color: var(--fha-muted);
+      }
+      .fv {
+        display: flex;
+        flex-direction: column;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .popup.attack .fv.bad {
+        color: var(--fha-red-soft);
+      }
+      .popup.warning .fv.bad,
+      .popup.ok .fv.bad {
+        color: var(--fha-amber-soft);
+      }
+      .fnote {
+        margin: -1px 0 4px;
+        font-size: 12px;
+        color: var(--fha-muted);
+      }
+      .meter {
+        height: 4px;
+        margin: 1px 0 5px;
+        border-radius: 2px;
+        background: var(--fha-line);
+        overflow: hidden;
+      }
+      .meter i {
+        display: block;
+        height: 100%;
+        background: var(--fha-green);
+      }
+      .segs {
+        display: grid;
+        grid-template-columns: repeat(20, 1fr);
+        gap: 2px;
+        margin: 1px 0 5px;
+      }
+      .segs i {
+        height: 5px;
+        background: var(--fha-line);
+      }
+      .segs i.on {
+        background: var(--fha-cyan);
+      }
+      .pchecks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        margin: 4px -14px -12px;
+        padding: 10px 14px;
+        border-top: 1px solid var(--fha-line);
+        background: var(--fha-bg);
         color: var(--fha-soft);
       }
-      .prow.amber {
-        color: var(--fha-amber-soft);
+      .popup.attack .pchecks {
+        background: #170b11;
+      }
+      .popup.warning .pchecks {
+        background: #141209;
+      }
+      .pchecks span::before {
+        content: "✓";
+        margin-right: 6px;
+        color: var(--fha-green-soft);
       }
       .popup .more {
         align-self: flex-start;
@@ -911,44 +1092,17 @@ export class FactorioMapCard extends LitElement {
       .lead.attack circle {
         fill: var(--fha-red);
       }
+      .lead.ok path {
+        stroke: var(--fha-muted);
+      }
+      .lead.ok circle {
+        fill: var(--fha-muted);
+      }
       .lead.warning path {
         stroke: var(--fha-amber);
       }
       .lead.warning circle {
         fill: var(--fha-amber);
-      }
-      .callout .box {
-        stroke-width: 1;
-      }
-      .callout.attack .box {
-        fill: var(--fha-red-bg);
-        stroke: var(--fha-red-border);
-      }
-      .callout.warning .box {
-        fill: var(--fha-amber-bg);
-        stroke: var(--fha-amber-border);
-      }
-      .ctitle {
-        font-family: Unbounded, "Golos Text", sans-serif;
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .callout.attack .ctitle {
-        fill: var(--fha-red-soft);
-      }
-      .callout.warning .ctitle {
-        fill: var(--fha-amber-soft);
-      }
-      .cline {
-        font-size: 13px;
-        fill: var(--fha-text);
-      }
-      .cline.muted {
-        font-size: 12px;
-        fill: var(--fha-soft);
-      }
-      .cline.amber {
-        fill: var(--fha-amber-soft);
       }
       .title {
         font-family: Unbounded, "Golos Text", sans-serif;
