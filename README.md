@@ -69,6 +69,9 @@ configuration editor, and paste the file. Replace `main` with your server id.
 | `sensor.factorio_<id>_bodies` | number of built bodies; attribute `bodies` (all space locations, read by the map card) |
 | `sensor.factorio_<id>_research` | current research; attributes `progress` (%), `level`, `queue` (the current research is its first entry), `unlocks` |
 | `sensor.factorio_<id>_recent_events` | time of the newest event; attribute `events` (last 60 minutes, at most 50; read by the timeline card) |
+| `sensor.factorio_<id>_ups` | real game speed, updates per second (a one-minute average from the relay; 60 is full speed); `unknown` while the game is paused or stopped |
+| `sensor.factorio_<id>_server_started` | when the server came up (the relay saw RCON connect); counts from a relay restart if only the relay restarted |
+| `sensor.factorio_<id>_game_version`, `_mod_version`, `_relay_version` | versions (diagnostic) |
 | `event.factorio_<id>_game_events` | all event types below; also fired on the bus as `factorio_<event>` |
 
 Per planet (a device per planet; entity ids `<platform>.factorio_<id>_<planet>_<key>`),
@@ -103,7 +106,10 @@ a paused game does not count. Machines, drills and the game clock the rule runs 
 factorio-ha-bridge relay and mod 0.3 or newer.
 
 Values never turn `unavailable`: when the connection is lost they keep the last
-known value and `game_state` becomes `no_connection`. Removing the integration
+known value and `game_state` becomes `no_connection`. The exceptions are UPS and
+server started, which become `unknown` (an old speed or start time would mislead).
+UPS, server started and the game version need factorio-ha-bridge relay 0.4.2 or newer;
+with an older relay they stay `unknown`. Removing the integration
 clears its config, so the game stops collecting data.
 
 ## Roadmap
