@@ -32,7 +32,7 @@ by itself, so there is nothing to add under Dashboard resources. Every card take
 | Card | What it shows | Options |
 |---|---|---|
 | `custom:factorio-header-card` | title, game state, attacked planets, players online, research progress | `title` (default "Factorio") |
-| `custom:factorio-map-card` | all space bodies on a system map: attack callouts, pulsing planets with problems (hover or tap for the list), rings of machines without problems, space platforms on their routes | `height` 360-1200, `label_healthy` |
+| `custom:factorio-map-card` | all space bodies on a system map: planets and space platforms that pulse when something is wrong (hover or tap any of them for the list, or for how it is), rings of machines without problems, space platforms on their routes | `height` 360-1200, `label_healthy` |
 | `custom:factorio-planets-card` | planets that need attention first (attack, turrets, walls, evolution), then the healthy, unlocked and not yet unlocked ones | |
 | `custom:factorio-platforms-card` | space platforms: where each one stands or flies (with progress), damage and problem lines | |
 | `custom:factorio-players-card` | who is online or AFK, who left last, deaths of the last hour | |
