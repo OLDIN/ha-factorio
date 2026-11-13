@@ -469,3 +469,38 @@ def test_platform_input_that_python_cannot_convert_is_skipped():
     machines(core, {"by_planet": {}, "by_platform": {"²": {"name": "Odd", "total": 10, "working": 0, "groups": [group]}}}, 1000)
     clock(core, 1000 + 2 * TICKS_PER_MINUTE)
     assert events == []
+
+
+def test_ups_and_server_started():
+    core = FactorioCore("main")
+    feed(core, "availability", "online")
+    feed(core, "state", {**STATE, "ups": 59.8, "server_started": "2026-11-13T07:00:00+00:00"})
+    assert core.ups == 59.8
+    assert core.server_started.isoformat() == "2026-11-13T07:00:00+00:00"
+    feed(core, "availability", "offline")
+    assert core.ups is None and core.server_started is None
+
+
+def test_ups_rejects_non_numbers():
+    core = FactorioCore("main")
+    feed(core, "availability", "online")
+    feed(core, "state", {**STATE, "ups": "59.8"})
+    assert core.ups is None
+    feed(core, "state", {**STATE, "ups": True})
+    assert core.ups is None
+
+
+def test_server_started_rejects_garbage():
+    core = FactorioCore("main")
+    feed(core, "availability", "online")
+    feed(core, "state", {**STATE, "server_started": "not a time"})
+    assert core.server_started is None
+    feed(core, "state", {**STATE, "server_started": 12345})
+    assert core.server_started is None
+
+
+def test_versions_from_hello():
+    core = FactorioCore("main")
+    feed(core, "hello", {"v": 1, "server_id": "main", "relay_version": "0.4.2", "mod_version": "0.4.2",
+                         "game_version": "2.0.72"})
+    assert (core.game_version, core.mod_version, core.relay_version) == ("2.0.72", "0.4.2", "0.4.2")

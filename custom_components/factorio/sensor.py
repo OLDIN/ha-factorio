@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.const import PERCENTAGE, Platform
+from homeassistant.const import PERCENTAGE, EntityCategory, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -24,6 +24,11 @@ async def async_setup_entry(
     async_add_entities(
         [
             GameStateSensor(entry),
+            UpsSensor(entry),
+            ServerStartedSensor(entry),
+            VersionSensor(entry, "game_version"),
+            VersionSensor(entry, "mod_version"),
+            VersionSensor(entry, "relay_version"),
             PlayersOnlineSensor(entry),
             BodiesSensor(entry),
             PlatformsSensor(entry),
@@ -65,6 +70,48 @@ class GameStateSensor(FactorioEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"reason": self._core.game_state_reason, "since": self._core.game_state_since}
+
+
+class UpsSensor(FactorioEntity, SensorEntity):
+    """Real game speed in updates per second: the relay's one-minute average, unknown while paused."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "UPS"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, entry: FactorioConfigEntry) -> None:
+        super().__init__(entry, Platform.SENSOR, "ups")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._core.ups
+
+
+class ServerStartedSensor(FactorioEntity, SensorEntity):
+    """When the server came up, as far as the relay saw (its RCON connection)."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, entry: FactorioConfigEntry) -> None:
+        super().__init__(entry, Platform.SENSOR, "server_started")
+
+    @property
+    def native_value(self) -> datetime | None:
+        return self._core.server_started
+
+
+class VersionSensor(FactorioEntity, SensorEntity):
+    """Game, mod or relay version (`key` is the core property)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: FactorioConfigEntry, key: str) -> None:
+        super().__init__(entry, Platform.SENSOR, key)
+        self._key = key
+
+    @property
+    def native_value(self) -> str | None:
+        return getattr(self._core, self._key)
 
 
 class PlayersOnlineSensor(FactorioEntity, SensorEntity):

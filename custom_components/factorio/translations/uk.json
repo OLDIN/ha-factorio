@@ -219,6 +219,21 @@
       },
       "platforms": {
         "name": "Платформи"
+      },
+      "ups": {
+        "name": "UPS"
+      },
+      "server_started": {
+        "name": "Сервер запущено"
+      },
+      "game_version": {
+        "name": "Версія гри"
+      },
+      "mod_version": {
+        "name": "Версія мода"
+      },
+      "relay_version": {
+        "name": "Версія реле"
       }
     },
     "event": {
