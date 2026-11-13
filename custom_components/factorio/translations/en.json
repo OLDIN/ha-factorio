@@ -219,6 +219,21 @@
       },
       "platforms": {
         "name": "Platforms"
+      },
+      "ups": {
+        "name": "UPS"
+      },
+      "server_started": {
+        "name": "Server started"
+      },
+      "game_version": {
+        "name": "Game version"
+      },
+      "mod_version": {
+        "name": "Mod version"
+      },
+      "relay_version": {
+        "name": "Relay version"
       }
     },
     "event": {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from collections.abc import Callable, Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.util import dt as dt_util
@@ -356,3 +356,32 @@ class FactorioCore:
     @property
     def mod_version(self) -> str | None:
         return self._hello.get("mod_version")
+
+    @property
+    def relay_version(self) -> str | None:
+        version = self._hello.get("relay_version")
+        return version if isinstance(version, str) else None
+
+    @property
+    def game_version(self) -> str | None:
+        version = self._hello.get("game_version")
+        return version if isinstance(version, str) else None
+
+    @property
+    def ups(self) -> float | None:
+        """Game updates per second (the relay's one-minute average); None without a value or a relay."""
+        value = self._state.get("ups")
+        if self.relay_online is False or isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        return float(value)
+
+    @property
+    def server_started(self) -> datetime | None:
+        """When the relay saw the server come up (RCON connected); None without a relay."""
+        value = self._state.get("server_started")
+        if self.relay_online is False or not isinstance(value, str):
+            return None
+        when = dt_util.parse_datetime(value)
+        if when is not None and when.tzinfo is None:
+            when = when.replace(tzinfo=dt_util.UTC)
+        return when
