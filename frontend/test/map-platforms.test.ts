@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Placed } from "../src/map/layout";
-import { PARKED_MAX, placePlatforms } from "../src/map/platforms";
+import { PARKED_MAX, hasProblem, placePlatforms, platformAlert } from "../src/map/platforms";
 import type { PlatformRow } from "../src/shared/platforms";
 
 function body(name: string, cx: number, cy: number, r = 18): Placed {
@@ -45,12 +45,37 @@ describe("placePlatforms", () => {
     expect(new Set(out.diamonds.map((d) => `${Math.round(d.x)},${Math.round(d.y)}`)).size).toBe(PARKED_MAX);
   });
 
-  it("damaged and problem platforms are amber and come first in the stack", () => {
-    const rows = [row(1), row(2), row(3), row(4), row(5, { damage: { active: true, losses: {} } })];
+  it("damaged (red) and problem-line (amber) platforms come first in the stack", () => {
+    const line = { recipe: "iron-plate", reason: "no_input", stopped: 3, total: 4, minutes: 2 };
+    const rows = [row(1), row(2), row(3), row(4, { lines: [line] }), row(5, { damage: { active: true, losses: {} } })];
     const out = placePlatforms(rows, PLACED, title);
-    expect(out.diamonds[0].index).toBe(5);
-    expect(out.diamonds[0].tone).toBe("amber");
-    expect(out.diamonds.slice(1).every((d) => d.tone === "muted")).toBe(true);
+    expect(out.diamonds.slice(0, 2).map((d) => [d.index, d.tone, hasProblem(d)]).sort()).toEqual([
+      [4, "amber", true],
+      [5, "red", true],
+    ]);
+    expect(out.diamonds.slice(2).every((d) => d.tone === "muted" && !hasProblem(d))).toBe(true);
+  });
+
+  it("says what is wrong with a platform: damage in red, stopped lines in amber, nothing for a healthy one", () => {
+    const line = { recipe: "iron-plate", reason: "no_input", stopped: 3, total: 4, minutes: 2 };
+    expect(platformAlert(row(1), "en")).toBeNull();
+    const damaged = platformAlert(row(2, { name: "Hauler 2", damage: { active: true, losses: { "transport-belt": 2 } }, lines: [line] }), "en")!;
+    expect(damaged.tone).toBe("attack");
+    expect(damaged.title).toBe("“Hauler 2”");
+    expect(damaged.chip).toBe("Damaged");
+    expect(damaged.facts).toEqual([
+      { label: "Lost", value: ["Transport belt\u00a0×2"] },
+      { label: "Iron plate", value: "3 of 4", note: "no input · 2 min", bad: true },
+    ]);
+    expect(damaged.checks).toEqual([]); // damaged, and a line is stopped
+    const stopped = platformAlert(row(3, { name: "Edge", lines: [line], linesMore: 2 }), "en")!;
+    expect(stopped.tone).toBe("warning");
+    expect(stopped.chip).toBe("Lines stopped · 3");
+    expect(stopped.facts.at(-1)).toEqual({ label: "2 more", value: "" });
+    expect(stopped.checks).toEqual(["No damage"]);
+    expect(platformAlert(row(4, { name: "Solo", lines: [line] }), "en")!.chip).toBe("Line stopped");
+    const hurt = platformAlert(row(5, { damage: { active: false, losses: {} } }), "en")!;
+    expect(hurt.checks).toEqual(["Lines fine"]);
   });
 
   it("skips a standing platform whose body is not on the map", () => {

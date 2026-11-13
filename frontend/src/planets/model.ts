@@ -1,9 +1,8 @@
 /** What the planets card shows, from HA states. Pure: no Lit, no DOM. */
-import { count, formatLosses, frozenKey } from "../map/callouts";
+import { count, formatLosses, isFrozen } from "../map/popups";
 import type { Body } from "../map/layout";
 import { entityId } from "../shared/entities";
-import { t, tn } from "../shared/i18n";
-import { prettyName } from "../shared/names";
+import { t } from "../shared/i18n";
 import { drillText, lineText, readDrills, readLines, readMachines, type Machines } from "../shared/production";
 import { asDict, asList, type HassState } from "../shared/types";
 
@@ -63,15 +62,15 @@ function researched(states: States, sid: string): Map<string, number> {
   return out;
 }
 
-function rowOf(states: States, sid: string, name: string, lang: string, now: number, frozen: string | undefined): PlanetRow {
+function rowOf(states: States, sid: string, name: string, lang: string, now: number, frozen: boolean): PlanetRow {
   const lines: PlanetLine[] = [];
   const attack = states[entityId(sid, "binary_sensor", "under_attack", name)];
   if (attack?.state === "on") {
     const since = typeof attack.last_changed === "string" ? Date.parse(attack.last_changed) : NaN;
     const minutes = Number.isFinite(since) ? Math.floor((now - since) / 60_000) : null;
     const what =
-      frozen !== undefined
-        ? t(lang, "pl_attack_frozen", { state: t(lang, frozen) })
+      frozen
+        ? t(lang, "pl_attack_frozen")
         : minutes === null
           ? t(lang, "pl_attack_now")
           : t(lang, "pl_attack", { minutes: minutes < 1 ? "<1" : minutes });
@@ -97,7 +96,7 @@ function rowOf(states: States, sid: string, name: string, lang: string, now: num
  * only on the map. Bodies keep their order from the game otherwise.
  */
 export function planetsModel(states: States, sid: string, lang: string, now: number): PlanetsModel {
-  const frozen = frozenKey(states, sid);
+  const frozen = isFrozen(states, sid);
   const research = researched(states, sid);
   const seen = new Set<string>();
   const planets = bodiesOf(states, sid).filter((b) => {

@@ -1,5 +1,7 @@
 /** Reader of the platforms sensor for the cards (platforms card, system map). Pure. */
 import { entityId } from "./entities";
+import { t } from "./i18n";
+import { bodyName, bodyNameNear } from "./names";
 import type { ProblemLine } from "./production";
 import { asDict, asList, type HassState } from "./types";
 
@@ -100,8 +102,19 @@ export function readPlatforms(states: States, sid: string): PlatformRow[] | null
   return rows.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.index - b.index);
 }
 
-/** Colour of a platform: amber when damaged or with problem lines, cyan in flight, muted otherwise. */
-export function platformTone(r: PlatformRow): "amber" | "cyan" | "muted" {
-  if (r.damage || r.lines.length > 0) return "amber";
+/** Colour of a platform: red when damaged, amber with problem lines, cyan in flight, muted otherwise. */
+export function platformTone(r: PlatformRow): "red" | "amber" | "cyan" | "muted" {
+  if (r.damage) return "red";
+  if (r.lines.length > 0) return "amber";
   return r.kind === "flying" ? "cyan" : "muted";
+}
+
+const STANDING: Record<string, string> = { parked: "pf_parked", waiting: "pf_waiting", building: "pf_building" };
+
+/** Where a platform is, in words: "parked at Nauvis", "in flight"; null for a flying one with a route (the route says it). */
+export function platformWhere(r: PlatformRow, lang: string): string | null {
+  if (r.route !== null) return null;
+  if (r.location !== null && Object.hasOwn(STANDING, r.kind)) return t(lang, STANDING[r.kind], { place: bodyNameNear(r.location, lang) });
+  if (r.kind === "flying") return t(lang, "pf_flying");
+  return r.location !== null ? bodyName(r.location, lang) : null;
 }

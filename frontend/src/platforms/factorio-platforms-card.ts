@@ -1,10 +1,10 @@
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
-import { formatLosses } from "../map/callouts";
+import { formatLosses } from "../map/popups";
 import { defineEditor } from "../shared/editor";
 import { findServer, langOf, serverChanged } from "../shared/hass";
 import { t } from "../shared/i18n";
-import { bodyName, bodyNameNear } from "../shared/names";
-import { PLATFORM_ROWS, platformTone, readPlatforms, type PlatformRow } from "../shared/platforms";
+import { bodyName } from "../shared/names";
+import { PLATFORM_ROWS, platformTone, platformWhere, readPlatforms, type PlatformRow } from "../shared/platforms";
 import { lineText } from "../shared/production";
 import { cardStyles, ensureFonts, panelStyles } from "../shared/theme";
 import type { Hass } from "../shared/types";
@@ -16,8 +16,6 @@ interface PlatformsCardConfig {
 
 const EDITOR = "factorio-platforms-card-editor";
 defineEditor(EDITOR);
-
-const STANDING: Record<string, string> = { parked: "pf_parked", waiting: "pf_waiting", building: "pf_building" };
 
 /** The "Platforms" block of the dashboard: where each space platform is or flies, damage, problem lines. */
 export class FactorioPlatformsCard extends LitElement {
@@ -94,16 +92,7 @@ export class FactorioPlatformsCard extends LitElement {
 
   private _row(lang: string, r: PlatformRow) {
     const tone = platformTone(r);
-    const where =
-      r.route !== null
-        ? nothing
-        : r.location !== null && Object.hasOwn(STANDING, r.kind)
-          ? t(lang, STANDING[r.kind], { place: bodyNameNear(r.location, lang) })
-          : r.kind === "flying"
-            ? t(lang, "pf_flying")
-            : r.location !== null
-              ? bodyName(r.location, lang)
-              : nothing;
+    const where = platformWhere(r, lang) ?? nothing;
     const losses = r.damage ? formatLosses(r.damage.losses, lang) : "";
     return html`<li class="row ${tone}">
       <span class="diamond ${tone}" aria-hidden="true"></span>
@@ -158,6 +147,9 @@ export class FactorioPlatformsCard extends LitElement {
         transform: rotate(45deg);
         background: var(--fha-faint);
       }
+      .diamond.red {
+        background: var(--fha-red);
+      }
       .diamond.amber {
         background: var(--fha-amber);
       }
@@ -192,6 +184,9 @@ export class FactorioPlatformsCard extends LitElement {
         font-size: 14px;
         color: var(--fha-amber-soft);
       }
+      .damage {
+        color: var(--fha-red-soft);
+      }
       .more-lines {
         font-size: 13px;
       }
@@ -214,6 +209,9 @@ export class FactorioPlatformsCard extends LitElement {
         height: 100%;
         border-radius: 2px;
         background: var(--fha-cyan);
+      }
+      .row.red .fill {
+        background: var(--fha-red);
       }
       .row.amber .fill {
         background: var(--fha-amber);

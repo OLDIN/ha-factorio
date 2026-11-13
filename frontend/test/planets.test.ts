@@ -111,7 +111,7 @@ describe("planetsModel", () => {
   it("does not count attack minutes while the game is paused", () => {
     const paused = { ...STATES, "sensor.factorio_main_game_state": { state: "paused", attributes: {} } };
     expect(planetsModel(paused, "main", "uk", NOW).attention[0].lines[0].text).toBe(
-      "Напад, гра на паузі: втрачено Gun turret\u00a0×7, Medium electric pole\u00a0×7, Bulk inserter\u00a0×6, ще 1",
+      "Напад: втрачено Gun turret\u00a0×7, Medium electric pole\u00a0×7, Bulk inserter\u00a0×6, ще 1",
     );
   });
 
