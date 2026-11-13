@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
@@ -130,7 +131,10 @@ async def test_resource_registration_survives_restarts(lovelace_hass):
     hass = lovelace_hass
     await frontend.async_register_frontend(hass)
     hass.data.pop(frontend._DATA_KEY)  # a new Home Assistant run
-    await frontend.async_register_frontend(hass)
+    # A real restart has a fresh HTTP router; here the old one keeps its routes, so a second
+    # registration of the same URL would fail (and only when the built fonts are absent).
+    with patch.object(hass.http, "async_register_static_paths", AsyncMock()):
+        await frontend.async_register_frontend(hass)
     assert len(await _lovelace_resources(hass)) == 1
 
 

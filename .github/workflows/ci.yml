@@ -1,0 +1,81 @@
+name: CI
+
+# Checks that run on every pull request and on main, so a broken change is stopped before it is
+# merged. The Release workflow only publishes; it does not replace these.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Integration (ruff, pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Tests
+        run: pytest
+
+  cards:
+    name: Cards (typecheck, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (unused code included)
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Build the bundle
+        run: |
+          npm run build
+          test -s ../custom_components/factorio/www/factorio-cards.js
+
+  release-files:
+    name: Manifest and release notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The version in manifest.json has release notes
+        run: |
+          version=$(jq -r .version custom_components/factorio/manifest.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid version in manifest.json: $version"; exit 1; }
+          test -f "RELEASE_NOTES_${version}.md" || { echo "::error::RELEASE_NOTES_${version}.md is missing; run scripts/bump_version.py"; exit 1; }
+          jq empty hacs.json custom_components/factorio/manifest.json custom_components/factorio/strings.json custom_components/factorio/translations/*.json
